@@ -1,6 +1,6 @@
 // Service worker sederhana untuk panel admin
-const CACHE = "ojol-admin-v1";
-const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "ojol-admin-v2";
+const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest", "./iconv2.svg", "./iconv2-192.png", "./iconv2-512.png"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
