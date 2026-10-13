@@ -135,6 +135,7 @@ header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-i
       <button data-t="drivers" onclick="showTab('drivers')">Driver<span class="bd hidden" id="bdDrivers"></span></button>
       <button data-t="customers" onclick="showTab('customers')">Pelanggan</button>
       <button data-t="finance" onclick="showTab('finance')">Keuangan</button>
+      <button data-t="topup" onclick="showTab('topup')">Top up<span class="bd hidden" id="bdTopup"></span></button>
       <button data-t="settings" onclick="showTab('settings')">Pengaturan</button>
     </div>
   </header>
@@ -165,6 +166,7 @@ header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-i
     </div>
 
     <div class="tabpage hidden" id="pg-finance"><div id="finBox"></div></div>
+    <div class="tabpage hidden" id="pg-topup"><div class="chips" id="tpChips"></div><div id="tpList" class="list2"></div><div class="card" id="tpEvents"></div><div class="card" id="tpSetup"></div></div>
     <div class="tabpage hidden" id="pg-settings"><div id="setBox"></div></div>
   </div>
 </section>
@@ -191,7 +193,7 @@ const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth
 
 const S = {
   user: null, tab: "dash", settings: {}, drivers: [], profiles: {}, orders: [], wallet: [],
-  map: null, mk: null, f: { orders: "all", drivers: "all" }, loops: [], channel: null, loading: false, reload: null
+  topups: [], topEvents: [], map: null, mk: null, f: { orders: "all", drivers: "all", topup: "all" }, loops: [], channel: null, loading: false, reload: null
 };
 
 /* ---------- LABEL ---------- */
@@ -295,14 +297,17 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 async function loadAll() {
   if (S.loading) return; S.loading = true;
   try {
-    const [d, p, o, w, st] = await Promise.all([
+    const [d, p, o, w, st, tq, te] = await Promise.all([
       sb.from("drivers").select("*").limit(1000),
       sb.from("profiles").select("id,role,full_name,phone,created_at").limit(3000),
       sb.from("orders").select("*").order("created_at", { ascending: false }).limit(600),
       sb.from("wallet_tx").select("*").order("created_at", { ascending: false }).limit(400),
-      sb.from("settings").select("*")
+      sb.from("settings").select("*"),
+      sb.from("topup_requests").select("*").order("created_at", { ascending: false }).limit(300),
+      sb.from("topup_events").select("*").order("created_at", { ascending: false }).limit(60)
     ]);
     if (d.error || p.error || o.error) { toast("Gagal memuat data: " + (d.error || p.error || o.error).message); return; }
+    S.topups = (tq && tq.data) || []; S.topEvents = (te && te.data) || [];
     S.drivers = d.data || []; S.orders = o.data || []; S.wallet = w.data || [];
     S.profiles = {}; (p.data || []).forEach((r) => (S.profiles[r.id] = r));
     S.settings = {}; (st.data || []).forEach((r) => (S.settings[r.key] = Number(r.value)));
@@ -315,13 +320,16 @@ function startRealtime() {
   S.channel = sb.channel("admin")
     .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, kick)
     .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, kick)
+    .on("postgres_changes", { event: "*", schema: "public", table: "topup_requests" }, kick)
     .subscribe();
 }
 function render() {
-  const f = { dash: rDash, live: rLive, orders: rOrders, drivers: rDrivers, customers: rCust, finance: rFin, settings: rSet }[S.tab];
+  const f = { dash: rDash, live: rLive, orders: rOrders, drivers: rDrivers, customers: rCust, finance: rFin, topup: rTopup, settings: rSet }[S.tab];
   if (f) f();
   const act = S.orders.filter((o) => ACTIVE.includes(o.status)).length, pend = S.drivers.filter((d) => !d.approved && !d.banned).length;
   $("bdOrders").textContent = act; $("bdOrders").classList.toggle("hidden", !act);
+  const rv = S.topups.filter((t) => t.status === "review").length;
+  $("bdTopup").textContent = rv; $("bdTopup").classList.toggle("hidden", !rv);
   $("bdDrivers").textContent = pend; $("bdDrivers").classList.toggle("hidden", !pend);
 }
 
@@ -519,6 +527,50 @@ function rFin() {
       <div class="stat"><small>Total saldo semua driver</small><b>${rp(bal)}</b></div></div>
     <div class="row" style="margin-bottom:10px"><button class="btn" onclick="openTopup()">💰 Top up saldo driver</button></div>
     <div class="card"><h3>Mutasi saldo terbaru</h3>${S.wallet.slice(0, 60).map((w) => `<div class="kv"><span>${fmtTime(w.created_at)} · ${esc(nm(w.driver_id))}<br><small>${w.type === "commission" ? "Komisi order" : w.type === "topup" ? "Top up" : "Penyesuaian"}${w.note && w.type !== "commission" ? " · " + esc(w.note) : ""}</small></span><b class="${w.amount >= 0 ? "plus" : "minus"}">${w.amount >= 0 ? "+" : ""}${rp(w.amount)}</b></div>`).join("") || '<div class="empty">Belum ada transaksi.</div>'}</div>`;
+}
+
+/* ---------- TOP UP QRIS ---------- */
+const TST = { pending: ["a", "Menunggu bayar"], paid: ["g", "Lunas"], expired: ["s", "Kedaluwarsa"], cancelled: ["s", "Dibatalkan"], review: ["p", "Perlu ditinjau"], rejected: ["r", "Ditolak"] };
+function rTopup() {
+  chips("tpChips", [["all", "Semua"], ["review", "Perlu ditinjau"], ["pending", "Menunggu"], ["paid", "Lunas"], ["expired", "Kedaluwarsa"]], "topup", "rTopup");
+  const list = S.topups.filter((t) => S.f.topup === "all" || t.status === S.f.topup);
+  $("tpList").innerHTML = list.length ? list.slice(0, 80).map((t) => `<div class="card">
+      <div class="row sb"><b>${esc(nm(t.driver_id))}</b><span class="pill ${TST[t.status][0]}">${TST[t.status][1]}</span></div>
+      <div class="row sb" style="margin:6px 0"><span class="muted">${fmtTime(t.created_at)} · top up ${rp(t.base_amount)} + kode ${t.unique_code}</span><b>${rp(t.total_amount)}</b></div>
+      ${["pending", "expired", "review", "cancelled"].includes(t.status) ? `<div class="row"><button class="btn sm g" onclick="reviewTopup('${t.id}',true)">Setujui &amp; kreditkan</button><button class="btn sm gray" onclick="reviewTopup('${t.id}',false)">Tolak</button></div>` : ""}</div>`).join("")
+    : '<div class="empty">Belum ada permintaan top up.</div>';
+  const ev = S.topEvents.slice(0, 40);
+  $("tpEvents").innerHTML = `<h3>Notifikasi masuk dari HP (terbaru)</h3>` + (ev.length ? ev.map((e) => `<div class="kv"><span>${fmtTime(e.created_at)}<br><small>${esc((e.raw_text || "").slice(0, 120))}</small></span><b style="font-size:12px;max-width:45%">${e.parsed_amount ? rp(e.parsed_amount) + "<br>" : ""}${esc(e.result || "-")}</b></div>`).join("") : '<div class="muted">Belum ada notifikasi masuk. Pasang pengirim notifikasi di HP (lihat kartu di bawah).</div>');
+  const url = CFG.SUPABASE_URL + "/rest/v1/rpc/confirm_topup";
+  $("tpSetup").innerHTML = `<h3>Pengaturan penerima notifikasi DANA</h3>
+    <div class="muted" style="margin-bottom:8px">Aplikasi di HP Anda (MacroDroid/Tasker) mengirim isi notifikasi DANA ke alamat ini setiap ada uang masuk.</div>
+    <label>URL (metode POST)</label><input readonly value="${esc(url)}" onclick="this.select()">
+    <label>Header</label><input readonly value="apikey: ${esc(CFG.SUPABASE_ANON_KEY)}" onclick="this.select()">
+    <label>Header</label><input readonly value="Content-Type: application/json" onclick="this.select()">
+    <label>Body JSON</label><textarea readonly rows="3" onclick="this.select()" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:10px;font:inherit;font-size:12px">{"p_token":"TOKEN_DI_BAWAH","p_text":"[isi notifikasi]","p_event_id":"[id unik]"}</textarea>
+    <label>TOKEN rahasia (jangan dibagikan)</label>
+    <div class="row"><input id="tpTok" readonly value="••••••••••••••••" style="flex:1"><button class="btn sm gray" onclick="showTok()">Tampilkan</button><button class="btn sm gray" onclick="copyTok()">Salin</button></div>
+    <div style="margin-top:8px"><button class="btn sm amber" onclick="regenTok()">Buat token baru</button></div>`;
+}
+async function getTok() {
+  const { data, error } = await sb.from("app_secrets").select("value").eq("key", "topup_token").single();
+  if (error || !data) { toast("Token tidak ditemukan (jalankan patch-topup.sql)", 5000); return null; }
+  return data.value;
+}
+async function showTok() { const t = await getTok(); if (t) $("tpTok").value = t; }
+async function copyTok() { const t = await getTok(); if (!t) return; try { await navigator.clipboard.writeText(t); toast("Token disalin"); } catch (e) { $("tpTok").value = t; $("tpTok").select(); toast("Salin manual dari kolom"); } }
+async function regenTok() {
+  if (!confirm("Buat token baru? Token lama langsung tidak berlaku dan HP Anda harus diperbarui.")) return;
+  const { data, error } = await sb.rpc("admin_regen_topup_token");
+  if (error) return toast("Gagal: " + error.message, 5000);
+  $("tpTok").value = data; toast("Token baru dibuat. Perbarui di HP.", 5000);
+}
+async function reviewTopup(id, ok) {
+  if (!confirm(ok ? "Kreditkan saldo driver sekarang? Pastikan uang BENAR-BENAR sudah masuk di DANA Anda." : "Tolak permintaan ini?")) return;
+  const { data, error } = await sb.rpc("admin_review_topup", { p_id: id, p_approve: ok });
+  if (error) return toast("Gagal: " + error.message, 6000);
+  if (!data.ok) return toast(data.msg);
+  toast(ok ? "Saldo dikreditkan ✔" : "Ditolak"); loadAll();
 }
 
 /* ---------- PENGATURAN ---------- */
