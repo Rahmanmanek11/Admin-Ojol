@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Panel Admin Ojol</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--a:#4f46e5;--a2:#4338ca;--dark:#111827;--g:#16a34a;--red:#dc2626;--amber:#f59e0b;--blue:#2563eb;--muted:#6b7280;--line:#e5e7eb;--txt:#111827;--bg:#f3f4f6}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--txt);background:var(--bg)}
+button{font:inherit;cursor:pointer;border:0}
+input,select,textarea{font:inherit}
+.hidden{display:none!important}
+
+/* LOGIN */
+#auth{min-height:100vh;background:linear-gradient(160deg,#030712,#312e81);display:flex;flex-direction:column;justify-content:center;padding:24px}
+.brand{text-align:center;color:#fff;margin-bottom:22px}
+.brand img{width:76px;height:76px;border-radius:20px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.brand h1{margin:12px 0 2px;font-size:26px}.brand p{margin:0;opacity:.8;font-size:14px}
+.box{background:#fff;border-radius:18px;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.35);max-width:420px;width:100%;margin:0 auto}
+label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--a)}
+.btn{padding:11px 16px;border-radius:10px;font-weight:700;font-size:14px;background:var(--a);color:#fff}
+.btn.full{width:100%;padding:14px;font-size:16px;margin-top:14px}
+.btn:active{background:var(--a2)}
+.btn.g{background:var(--g)}.btn.red{background:var(--red)}.btn.gray{background:#e5e7eb;color:#374151}.btn.amber{background:var(--amber);color:#fff}
+.btn.sm{padding:7px 11px;font-size:12px;border-radius:8px}
+.btn:disabled{opacity:.5}
+.err{color:var(--red);font-size:13px;margin-top:10px;min-height:16px}
+
+/* SHELL */
+header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 14px 0;position:sticky;top:0;z-index:600}
+.hrow{display:flex;align-items:center;gap:10px;padding-bottom:8px}
+.hrow b{font-size:17px}.hrow small{opacity:.7}
+.hrow .sp{flex:1}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:12px;opacity:.9}
+.live i{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pl 1.6s infinite}
+@keyframes pl{50%{opacity:.3}}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;margin:0 -14px;padding:0 10px}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{flex:none;background:none;color:#9ca3af;padding:10px 12px;font-size:13px;font-weight:600;border-bottom:3px solid transparent;position:relative}
+.tabs button.on{color:#fff;border-color:#818cf8}
+.bd{display:inline-block;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;background:var(--red);color:#fff;font-size:11px;padding:0 5px;margin-left:4px}
+.wrap{max-width:1100px;margin:0 auto;padding:14px 14px 60px}
+
+/* CARDS */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.stat{background:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.stat small{display:block;color:var(--muted);font-size:12px}
+.stat b{display:block;font-size:22px;margin-top:2px}
+.stat.hi{background:var(--a);color:#fff}.stat.hi small{color:#c7d2fe}
+.card{background:#fff;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card h3{margin:0 0 10px;font-size:15px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row.sb{justify-content:space-between}
+.pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+.pill.g{background:#dcfce7;color:#166534}.pill.a{background:#fef3c7;color:#92400e}.pill.b{background:#dbeafe;color:#1e40af}.pill.r{background:#fee2e2;color:#991b1b}.pill.s{background:#e5e7eb;color:#374151}.pill.p{background:#ede9fe;color:#5b21b6}
+.muted{color:var(--muted);font-size:13px}
+.kv{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:6px 0;border-bottom:1px dashed var(--line)}.kv:last-child{border:0}
+.kv span:first-child{color:var(--muted)}.kv b{text-align:right}
+.plus{color:var(--g);font-weight:700}.minus{color:var(--red);font-weight:700}
+.empty{text-align:center;color:var(--muted);padding:36px 10px}
+.list2{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+.list2 .card{margin:0}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:7px 12px;border-radius:20px;background:#fff;color:#374151;font-size:13px;font-weight:600;border:1.5px solid var(--line)}
+.chip.on{background:var(--a);color:#fff;border-color:var(--a)}
+.toolbar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.toolbar input{flex:1;min-width:180px}
+
+/* CHART */
+.bars{display:flex;align-items:flex-end;gap:10px;height:140px;padding-top:10px}
+.bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.bar .col{width:100%;max-width:46px;display:flex;flex-direction:column;justify-content:flex-end;border-radius:6px 6px 0 0;overflow:hidden;background:#eef2ff}
+.bar .col i{display:block;width:100%}
+.bar .c1{background:var(--a)}.bar .c2{background:#fca5a5}
+.bar small{font-size:11px;color:var(--muted);margin-top:4px}.bar b{font-size:12px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+
+/* MAP */
+#liveMap{height:62vh;min-height:360px;border-radius:14px;overflow:hidden;z-index:1}
+
+/* MODAL */
+.modal{position:fixed;inset:0;z-index:2000;background:rgba(17,24,39,.65);display:flex;align-items:center;justify-content:center;padding:14px}
+.mbox{background:#fff;border-radius:18px;padding:18px;width:100%;max-width:520px;max-height:90vh;overflow:auto;position:relative}
+.mbox h2{margin:0 36px 10px 0;font-size:18px}
+.mbox .x{position:absolute;right:12px;top:12px;width:32px;height:32px;border-radius:50%;background:#f3f4f6;font-size:15px}
+.set-row{display:grid;grid-template-columns:1fr 150px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line)}
+.set-row:last-child{border:0}.set-row small{display:block;color:var(--muted);font-size:12px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;color:#fff;padding:11px 18px;border-radius:12px;font-size:14px;z-index:3000;max-width:92%;box-shadow:0 6px 20px rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:.25s;text-align:center}
+#toast.show{opacity:1}
+@media(max-width:520px){.list2{grid-template-columns:1fr}.set-row{grid-template-columns:1fr 120px}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<section id="auth" class="hidden">
+  <div class="brand"><img src="icon.svg" alt=""><h1>Panel Admin</h1><p>Kontrol aplikasi driver &amp; pelanggan</p></div>
+  <div class="box">
+    <form onsubmit="return doLogin(event)">
+      <label>Email admin</label><input id="lEmail" type="email" autocomplete="email" required>
+      <label>Kata sandi</label><input id="lPass" type="password" autocomplete="current-password" required>
+      <button class="btn full" id="btnLogin">Masuk</button>
+    </form>
+    <div class="err" id="authErr"></div>
+  </div>
+</section>
+
+<!-- APP -->
+<section id="app" class="hidden">
+  <header class="top">
+    <div class="hrow"><b>🛡 Panel Admin</b><span class="live"><i></i>Live</span><span class="sp"></span><small id="hUser"></small><button class="btn sm gray" onclick="logout()">Keluar</button></div>
+    <div class="tabs" id="tabs">
+      <button data-t="dash" class="on" onclick="showTab('dash')">Dashboard</button>
+      <button data-t="live" onclick="showTab('live')">Peta Live</button>
+      <button data-t="orders" onclick="showTab('orders')">Order<span class="bd hidden" id="bdOrders"></span></button>
+      <button data-t="drivers" onclick="showTab('drivers')">Driver<span class="bd hidden" id="bdDrivers"></span></button>
+      <button data-t="customers" onclick="showTab('customers')">Pelanggan</button>
+      <button data-t="finance" onclick="showTab('finance')">Keuangan</button>
+      <button data-t="settings" onclick="showTab('settings')">Pengaturan</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="tabpage" id="pg-dash"><div id="dashBox"></div></div>
+
+    <div class="tabpage hidden" id="pg-live">
+      <div class="row sb" style="margin-bottom:8px"><div class="legend" style="margin:0"><span><i style="background:#16a34a"></i>Driver online</span><span><i style="background:#f59e0b"></i>Driver sibuk</span><span><i style="background:#2563eb"></i>Titik jemput order aktif</span></div><span class="muted" id="liveInfo"></span></div>
+      <div id="liveMap"></div>
+    </div>
+
+    <div class="tabpage hidden" id="pg-orders">
+      <div class="chips" id="ordChips"></div>
+      <div class="toolbar"><input id="ordQ" placeholder="Cari nama pelanggan / driver / alamat…" oninput="rOrders()"></div>
+      <div id="orderList" class="list2"></div>
+    </div>
+
+    <div class="tabpage hidden" id="pg-drivers">
+      <div class="chips" id="drvChips"></div>
+      <div class="toolbar"><input id="drvQ" placeholder="Cari nama / plat / nomor HP…" oninput="rDrivers()"></div>
+      <div id="driverList" class="list2"></div>
+    </div>
+
+    <div class="tabpage hidden" id="pg-customers">
+      <div class="toolbar"><input id="cusQ" placeholder="Cari nama / nomor HP…" oninput="rCust()"></div>
+      <div id="custList" class="list2"></div>
+    </div>
+
+    <div class="tabpage hidden" id="pg-finance"><div id="finBox"></div></div>
+    <div class="tabpage hidden" id="pg-settings"><div id="setBox"></div></div>
+  </div>
+</section>
+
+<div id="modal" class="modal hidden" onclick="if(event.target===this)closeModal()"><div class="mbox"><button class="x" onclick="closeModal()">✕</button><div id="mBody"></div></div></div>
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+/* =====================================================================
+   PANEL ADMIN OJOL
+   ===================================================================== */
+const CFG = window.APP_CONFIG;
+const $ = (id) => document.getElementById(id);
+const rp = (n) => (Number(n) < 0 ? "-Rp " : "Rp ") + Math.abs(Math.round(Number(n) || 0)).toLocaleString("id-ID");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtTime = (t) => t ? new Date(t).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-";
+const startOfDay = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+
+if (!CFG || CFG.SUPABASE_URL.includes("XXXXXXXX")) { document.body.innerHTML = "<p style='padding:30px'>Isi config.js dulu.</p>"; throw new Error("config"); }
+const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+
+const S = {
+  user: null, tab: "dash", settings: {}, drivers: [], profiles: {}, orders: [], wallet: [],
+  map: null, mk: null, f: { orders: "all", drivers: "all" }, loops: [], channel: null, loading: false, reload: null
+};
+
+/* ---------- LABEL ---------- */
+const OST = { searching: ["a", "Mencari driver"], accepted: ["b", "Driver menuju jemput"], arrived: ["b", "Driver tiba"], ongoing: ["p", "Dalam perjalanan"], completed: ["g", "Selesai"], cancelled: ["r", "Batal"] };
+const ACTIVE = ["searching", "accepted", "arrived", "ongoing"];
+const SETTINGS = [
+  ["commission_pct", "Komisi aplikasi (%)", "Dipotong dari saldo driver tiap order selesai"],
+  ["base_fare_motor", "Tarif dasar motor (Rp)", "Tarif minimum"],
+  ["per_km_motor", "Tarif per km motor (Rp)", ""],
+  ["base_fare_mobil", "Tarif dasar mobil (Rp)", "Tarif minimum"],
+  ["per_km_mobil", "Tarif per km mobil (Rp)", ""],
+  ["dispatch_radius_km", "Radius cari driver (km)", "Driver di luar radius tidak ditawari"],
+  ["offer_seconds", "Waktu tawaran ke driver (detik)", "Batas waktu driver menerima / menolak"],
+  ["min_balance", "Saldo minimum agar driver bisa online (Rp)", "Boleh negatif, mis. -50000"]
+];
+
+/* ---------- UI ---------- */
+let toastT;
+function toast(m, ms = 3200) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), ms); }
+function openModal(html) { $("mBody").innerHTML = html; $("modal").classList.remove("hidden"); }
+function closeModal() { $("modal").classList.add("hidden"); $("mBody").innerHTML = ""; }
+const nm = (id) => (S.profiles[id] && S.profiles[id].full_name) || "—";
+const ph = (id) => (S.profiles[id] && S.profiles[id].phone) || "";
+const waLink = (p) => "https://wa.me/" + String(p).replace(/\D/g, "").replace(/^0/, "62");
+const ago = (t) => { if (!t) return "-"; const s = (Date.now() - new Date(t)) / 1000; return s < 60 ? "baru saja" : s < 3600 ? Math.floor(s / 60) + " mnt lalu" : s < 86400 ? Math.floor(s / 3600) + " jam lalu" : Math.floor(s / 86400) + " hari lalu"; };
+const fresh = (d) => d.last_seen && Date.now() - new Date(d.last_seen) < 3 * 60 * 1000;
+function drvState(d) {
+  if (d.banned) return ["r", "Diblokir"]; if (!d.approved) return ["a", "Menunggu persetujuan"];
+  if (d.status === "offline") return ["s", "Offline"];
+  if (!fresh(d)) return ["s", "Terputus"];
+  return d.status === "busy" ? ["p", "Sibuk"] : ["g", "Online"];
+}
+function showTab(t) {
+  S.tab = t;
+  document.querySelectorAll(".tabpage").forEach((p) => p.classList.toggle("hidden", p.id !== "pg-" + t));
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+  render();
+}
+function chips(boxId, items, key, fn) {
+  $(boxId).innerHTML = items.map(([v, l]) => `<button class="chip ${S.f[key] === v ? "on" : ""}" onclick="S.f.${key}='${v}';${fn}()">${l}</button>`).join("");
+}
+
+/* ---------- AUTH ---------- */
+async function doLogin(e) {
+  e.preventDefault(); $("authErr").textContent = ""; $("btnLogin").disabled = true;
+  const { error } = await sb.auth.signInWithPassword({ email: $("lEmail").value.trim(), password: $("lPass").value });
+  $("btnLogin").disabled = false;
+  if (error) { $("authErr").textContent = "Gagal masuk: " + (error.message.includes("Invalid") ? "email / kata sandi salah" : error.message); return false; }
+  await boot(); return false;
+}
+async function logout() { stopAll(); await sb.auth.signOut(); location.reload(); }
+function stopAll() { S.loops.forEach(clearInterval); S.loops = []; if (S.channel) sb.removeChannel(S.channel); }
+
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { $("app").classList.add("hidden"); $("auth").classList.remove("hidden"); return; }
+  S.user = session.user;
+  const { data: me } = await sb.from("profiles").select("*").eq("id", S.user.id).single();
+  if (!me || me.role !== "admin") {
+    await sb.auth.signOut(); $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
+    $("authErr").textContent = "Akun ini bukan admin. Jalankan perintah SQL jadikan-admin di Supabase terlebih dulu."; return;
+  }
+  $("hUser").textContent = me.full_name || S.user.email;
+  $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
+  chips("ordChips", [["all", "Semua"], ["active", "Aktif"], ["completed", "Selesai"], ["cancelled", "Batal"]], "orders", "rOrders");
+  chips("drvChips", [["all", "Semua"], ["pending", "Menunggu"], ["online", "Online"], ["busy", "Sibuk"], ["offline", "Offline"], ["banned", "Diblokir"]], "drivers", "rDrivers");
+  await loadAll(); startRealtime();
+  S.loops.push(setInterval(loadAll, 10000));
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.user) loadAll(); });
+
+/* ---------- DATA ---------- */
+async function loadAll() {
+  if (S.loading) return; S.loading = true;
+  try {
+    const [d, p, o, w, st] = await Promise.all([
+      sb.from("drivers").select("*").limit(1000),
+      sb.from("profiles").select("id,role,full_name,phone,created_at").limit(3000),
+      sb.from("orders").select("*").order("created_at", { ascending: false }).limit(600),
+      sb.from("wallet_tx").select("*").order("created_at", { ascending: false }).limit(400),
+      sb.from("settings").select("*")
+    ]);
+    if (d.error || p.error || o.error) { toast("Gagal memuat data: " + (d.error || p.error || o.error).message); return; }
+    S.drivers = d.data || []; S.orders = o.data || []; S.wallet = w.data || [];
+    S.profiles = {}; (p.data || []).forEach((r) => (S.profiles[r.id] = r));
+    S.settings = {}; (st.data || []).forEach((r) => (S.settings[r.key] = Number(r.value)));
+    render();
+  } finally { S.loading = false; }
+}
+function startRealtime() {
+  if (S.channel) sb.removeChannel(S.channel);
+  const kick = () => { clearTimeout(S.reload); S.reload = setTimeout(loadAll, 600); };
+  S.channel = sb.channel("admin")
+    .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, kick)
+    .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, kick)
+    .subscribe();
+}
+function render() {
+  const f = { dash: rDash, live: rLive, orders: rOrders, drivers: rDrivers, customers: rCust, finance: rFin, settings: rSet }[S.tab];
+  if (f) f();
+  const act = S.orders.filter((o) => ACTIVE.includes(o.status)).length, pend = S.drivers.filter((d) => !d.approved && !d.banned).length;
+  $("bdOrders").textContent = act; $("bdOrders").classList.toggle("hidden", !act);
+  $("bdDrivers").textContent = pend; $("bdDrivers").classList.toggle("hidden", !pend);
+}
+
+/* ---------- DASHBOARD ---------- */
+function chart7() {
+  const days = [];
+  for (let i = 6; i >= 0; i--) { const d = startOfDay(); d.setDate(d.getDate() - i); days.push(d); }
+  const data = days.map((d) => {
+    const e = new Date(d); e.setDate(e.getDate() + 1);
+    const os = S.orders.filter((o) => { const t = new Date(o.created_at); return t >= d && t < e; });
+    return { d, ok: os.filter((o) => o.status === "completed").length, bad: os.filter((o) => o.status === "cancelled").length, all: os.length };
+  });
+  const max = Math.max(1, ...data.map((x) => x.ok + x.bad));
+  return `<div class="bars">${data.map((x) => `<div class="bar"><b>${x.ok + x.bad || ""}</b><div class="col" style="height:${((x.ok + x.bad) / max) * 100}%"><i class="c2" style="height:${x.ok + x.bad ? (x.bad / (x.ok + x.bad)) * 100 : 0}%"></i><i class="c1" style="height:${x.ok + x.bad ? (x.ok / (x.ok + x.bad)) * 100 : 0}%"></i></div><small>${x.d.toLocaleDateString("id-ID", { weekday: "short" })}</small></div>`).join("")}</div>
+  <div class="legend"><span><i style="background:var(--a)"></i>Selesai</span><span><i style="background:#fca5a5"></i>Batal</span></div>`;
+}
+function rDash() {
+  const t0 = startOfDay(), today = S.orders.filter((o) => new Date(o.created_at) >= t0);
+  const done = today.filter((o) => o.status === "completed");
+  const omzet = done.reduce((a, o) => a + Number(o.fare), 0);
+  const komisi = S.wallet.filter((w) => w.type === "commission" && new Date(w.created_at) >= t0).reduce((a, w) => a - Number(w.amount), 0);
+  const on = S.drivers.filter((d) => d.approved && !d.banned && d.status === "online" && fresh(d)).length;
+  const busy = S.drivers.filter((d) => d.approved && !d.banned && d.status === "busy").length;
+  const pend = S.drivers.filter((d) => !d.approved && !d.banned);
+  const act = S.orders.filter((o) => ACTIVE.includes(o.status));
+  const cus = Object.values(S.profiles).filter((p) => p.role === "customer").length;
+  $("dashBox").innerHTML = `
+    <div class="grid">
+      <div class="stat hi"><small>Pendapatan aplikasi hari ini</small><b>${rp(komisi)}</b></div>
+      <div class="stat"><small>Omzet order hari ini</small><b>${rp(omzet)}</b></div>
+      <div class="stat"><small>Order hari ini</small><b>${today.length}</b></div>
+      <div class="stat"><small>Order selesai</small><b>${done.length}</b></div>
+      <div class="stat"><small>Order aktif sekarang</small><b>${act.length}</b></div>
+      <div class="stat"><small>Driver online / sibuk</small><b>${on} / ${busy}</b></div>
+      <div class="stat"><small>Total driver</small><b>${S.drivers.length}</b></div>
+      <div class="stat"><small>Total pelanggan</small><b>${cus}</b></div>
+    </div>
+    ${pend.length ? `<div class="card" style="border:2px solid var(--amber)"><div class="row sb"><div><b>⏳ ${pend.length} driver menunggu persetujuan</b><div class="muted">${pend.slice(0, 3).map((d) => esc(nm(d.id))).join(", ")}${pend.length > 3 ? "…" : ""}</div></div><button class="btn sm" onclick="S.f.drivers='pending';chips('drvChips',[['all','Semua'],['pending','Menunggu'],['online','Online'],['busy','Sibuk'],['offline','Offline'],['banned','Diblokir']],'drivers','rDrivers');showTab('drivers')">Tinjau</button></div></div>` : ""}
+    <div class="card"><h3>Order 7 hari terakhir</h3>${chart7()}</div>
+    <div class="card"><h3>Order terbaru</h3>${S.orders.slice(0, 6).map((o) => `<div class="kv" style="cursor:pointer" onclick="orderDetail('${o.id}')"><span>${fmtTime(o.created_at)} · ${esc(nm(o.customer_id))}</span><b><span class="pill ${OST[o.status][0]}">${OST[o.status][1]}</span> ${rp(o.fare)}</b></div>`).join("") || '<div class="empty">Belum ada order.</div>'}</div>`;
+}
+
+/* ---------- PETA LIVE ---------- */
+function rLive() {
+  if (!S.map) {
+    S.map = L.map("liveMap").setView(CFG.DEFAULT_CENTER, 13);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(S.map);
+    S.mk = L.layerGroup().addTo(S.map); S.fitted = false;
+  }
+  setTimeout(() => S.map.invalidateSize(), 60);
+  S.mk.clearLayers(); const pts = [];
+  S.drivers.filter((d) => d.approved && !d.banned && d.status !== "offline" && d.lat != null && fresh(d)).forEach((d) => {
+    const c = d.status === "busy" ? "#f59e0b" : "#16a34a";
+    L.marker([d.lat, d.lng], { icon: L.divIcon({ className: "", iconSize: [34, 34], iconAnchor: [17, 17], html: `<div style="width:34px;height:34px;border-radius:50%;background:#fff;border:3px solid ${c};display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 2px 6px rgba(0,0,0,.35)">${d.vehicle_type === "motor" ? "🏍" : "🚗"}</div>` }) })
+      .bindPopup(`<b>${esc(nm(d.id))}</b><br>${esc(d.plate || "")} · ${d.status === "busy" ? "Sibuk" : "Online"}<br>Saldo ${rp(d.balance)}`).addTo(S.mk);
+    pts.push([d.lat, d.lng]);
+  });
+  S.orders.filter((o) => ACTIVE.includes(o.status)).forEach((o) => {
+    L.marker([o.pickup_lat, o.pickup_lng], { icon: L.divIcon({ className: "", iconSize: [26, 26], iconAnchor: [13, 13], html: `<div style="width:26px;height:26px;border-radius:50%;background:#2563eb;color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.35)">J</div>` }) })
+      .bindPopup(`<b>${OST[o.status][1]}</b><br>${esc(nm(o.customer_id))}<br>${esc(o.pickup_address || "")}<br>${rp(o.fare)}`).addTo(S.mk);
+    pts.push([o.pickup_lat, o.pickup_lng]);
+  });
+  const on = S.drivers.filter((d) => d.status !== "offline" && fresh(d)).length;
+  $("liveInfo").textContent = `${on} driver aktif · ${S.orders.filter((o) => ACTIVE.includes(o.status)).length} order aktif`;
+  if (!S.fitted && pts.length) { S.map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 15 }); S.fitted = true; }
+}
+
+/* ---------- ORDER ---------- */
+function rOrders() {
+  chips("ordChips", [["all", "Semua"], ["active", "Aktif"], ["completed", "Selesai"], ["cancelled", "Batal"]], "orders", "rOrders");
+  const q = $("ordQ").value.trim().toLowerCase(), f = S.f.orders;
+  const list = S.orders.filter((o) => (f === "all" || (f === "active" ? ACTIVE.includes(o.status) : o.status === f)) &&
+    (!q || [nm(o.customer_id), nm(o.driver_id), o.pickup_address, o.dest_address].join(" ").toLowerCase().includes(q)));
+  $("orderList").innerHTML = list.length ? list.slice(0, 150).map((o) => `<div class="card" style="cursor:pointer" onclick="orderDetail('${o.id}')">
+    <div class="row sb"><b>${fmtTime(o.created_at)}</b><span class="pill ${OST[o.status][0]}">${OST[o.status][1]}</span></div>
+    <div class="muted" style="margin:6px 0">${esc(o.pickup_address || "-")} → ${esc(o.dest_address || "-")}</div>
+    <div class="row sb"><span>👤 ${esc(nm(o.customer_id))} ${o.driver_id ? "· 🛵 " + esc(nm(o.driver_id)) : ""}</span><b>${rp(o.fare)}</b></div></div>`).join("") : '<div class="empty" style="grid-column:1/-1">Tidak ada order.</div>';
+}
+function orderDetail(id) {
+  const o = S.orders.find((x) => x.id === id); if (!o) return;
+  const tx = S.wallet.find((w) => w.order_id === o.id && w.type === "commission");
+  openModal(`<h2>Order #${esc(o.id.slice(0, 8))}</h2>
+    <div style="margin-bottom:8px"><span class="pill ${OST[o.status][0]}">${OST[o.status][1]}</span> <span class="pill s">${o.service === "motor" ? "🏍 Motor" : "🚗 Mobil"}</span></div>
+    <div class="kv"><span>Pelanggan</span><b>${esc(nm(o.customer_id))}<br><small class="muted">${esc(ph(o.customer_id))}</small></b></div>
+    <div class="kv"><span>Driver</span><b>${o.driver_id ? esc(nm(o.driver_id)) + "<br><small class='muted'>" + esc(ph(o.driver_id)) + "</small>" : "-"}</b></div>
+    <div class="kv"><span>Jemput</span><b>${esc(o.pickup_address || "-")}</b></div>
+    <div class="kv"><span>Tujuan</span><b>${esc(o.dest_address || "-")}</b></div>
+    <div class="kv"><span>Jarak</span><b>${Number(o.distance_km).toFixed(1)} km</b></div>
+    <div class="kv"><span>Tarif (tunai)</span><b>${rp(o.fare)}</b></div>
+    ${tx ? `<div class="kv"><span>Komisi aplikasi</span><b>${rp(-tx.amount)}</b></div>` : ""}
+    <div class="kv"><span>Dibuat</span><b>${fmtTime(o.created_at)}</b></div>
+    <div class="kv"><span>Diterima driver</span><b>${fmtTime(o.accepted_at)}</b></div>
+    <div class="kv"><span>Mulai jalan</span><b>${fmtTime(o.started_at)}</b></div>
+    <div class="kv"><span>Selesai</span><b>${fmtTime(o.completed_at)}</b></div>
+    ${o.rating ? `<div class="kv"><span>Rating</span><b style="color:#f59e0b">${"★".repeat(o.rating)}${o.review ? "<br><small class='muted'>" + esc(o.review) + "</small>" : ""}</b></div>` : ""}
+    ${o.status === "cancelled" ? `<div class="kv"><span>Dibatalkan oleh</span><b>${esc(o.cancelled_by || "-")}<br><small class="muted">${esc(o.cancel_reason || "")}</small></b></div>` : ""}
+    ${ACTIVE.includes(o.status) ? `<button class="btn red full" onclick="adminCancel('${o.id}')">Batalkan order ini</button>` : ""}`);
+}
+async function adminCancel(id) {
+  const r = prompt("Alasan pembatalan (opsional):"); if (r === null) return;
+  const { data, error } = await sb.rpc("admin_cancel_order", { p_order: id, p_reason: r });
+  if (error) return toast("Gagal: " + error.message + " (sudah menjalankan patch-admin.sql?)", 6000);
+  if (!data.ok) return toast(data.msg);
+  closeModal(); toast("Order dibatalkan"); loadAll();
+}
+
+/* ---------- DRIVER ---------- */
+function rDrivers() {
+  chips("drvChips", [["all", "Semua"], ["pending", "Menunggu"], ["online", "Online"], ["busy", "Sibuk"], ["offline", "Offline"], ["banned", "Diblokir"]], "drivers", "rDrivers");
+  const q = $("drvQ").value.trim().toLowerCase(), f = S.f.drivers;
+  const list = S.drivers.filter((d) => {
+    const s = drvState(d)[1];
+    const okF = f === "all" || (f === "pending" && !d.approved && !d.banned) || (f === "banned" && d.banned) ||
+      (f === "online" && s === "Online") || (f === "busy" && s === "Sibuk") || (f === "offline" && (s === "Offline" || s === "Terputus"));
+    return okF && (!q || [nm(d.id), ph(d.id), d.plate, d.vehicle_model].join(" ").toLowerCase().includes(q));
+  });
+  $("driverList").innerHTML = list.length ? list.map((d) => { const st = drvState(d); return `<div class="card">
+    <div class="row sb"><b>${d.vehicle_type === "motor" ? "🏍" : "🚗"} ${esc(nm(d.id))}</b><span class="pill ${st[0]}">${st[1]}</span></div>
+    <div class="muted" style="margin:4px 0">${esc(d.vehicle_model || "-")} · <b>${esc(d.plate || "-")}</b> · ${esc(ph(d.id) || "-")}</div>
+    <div class="row sb" style="margin-bottom:8px"><span>⭐ ${Number(d.rating).toFixed(2)} · ${d.total_trips} trip</span><b class="${d.balance < 0 ? "minus" : ""}">${rp(d.balance)}</b></div>
+    <div class="row">
+      ${!d.approved ? `<button class="btn sm g" onclick="setDriver('${d.id}',true,false)">✔ Setujui</button>` : ""}
+      ${d.banned ? `<button class="btn sm gray" onclick="setDriver('${d.id}',true,false)">Buka blokir</button>` : `<button class="btn sm red" onclick="setDriver('${d.id}',${d.approved},true)">Blokir</button>`}
+      <button class="btn sm" onclick="openTopup('${d.id}')">💰 Saldo</button>
+      <button class="btn sm gray" onclick="driverDetail('${d.id}')">Detail</button>
+      ${ph(d.id) ? `<a class="btn sm gray" style="text-decoration:none" href="${waLink(ph(d.id))}" target="_blank" rel="noopener">WA</a>` : ""}
+    </div></div>`; }).join("") : '<div class="empty" style="grid-column:1/-1">Tidak ada driver.</div>';
+}
+async function setDriver(id, approved, banned) {
+  if (banned && !confirm("Blokir driver ini? Ia tidak bisa online lagi.")) return;
+  const { data, error } = await sb.rpc("admin_set_driver", { p_driver: id, p_approved: approved, p_banned: banned });
+  if (error) return toast("Gagal: " + error.message + " (sudah menjalankan patch-admin.sql?)", 6000);
+  if (!data.ok) return toast(data.msg);
+  toast(banned ? "Driver diblokir" : "Driver diaktifkan"); loadAll();
+}
+function driverDetail(id) {
+  const d = S.drivers.find((x) => x.id === id); if (!d) return; const st = drvState(d);
+  const os = S.orders.filter((o) => o.driver_id === id), tx = S.wallet.filter((w) => w.driver_id === id).slice(0, 12);
+  openModal(`<h2>${esc(nm(id))}</h2><div style="margin-bottom:8px"><span class="pill ${st[0]}">${st[1]}</span></div>
+    <div class="kv"><span>Telepon</span><b>${esc(ph(id) || "-")}</b></div>
+    <div class="kv"><span>Kendaraan</span><b>${esc(d.vehicle_model || "-")} (${d.vehicle_type})</b></div>
+    <div class="kv"><span>Plat</span><b>${esc(d.plate || "-")}</b></div>
+    <div class="kv"><span>Rating / Trip</span><b>⭐ ${Number(d.rating).toFixed(2)} / ${d.total_trips}</b></div>
+    <div class="kv"><span>Saldo</span><b class="${d.balance < 0 ? "minus" : ""}">${rp(d.balance)}</b></div>
+    <div class="kv"><span>Terakhir aktif</span><b>${ago(d.last_seen)}</b></div>
+    <div class="kv"><span>Bergabung</span><b>${fmtTime(d.created_at)}</b></div>
+    <div class="kv"><span>Order (600 terakhir)</span><b>${os.length} (${os.filter((o) => o.status === "completed").length} selesai)</b></div>
+    <h3 style="margin:14px 0 4px;font-size:14px">Mutasi saldo terakhir</h3>
+    ${tx.length ? tx.map((w) => `<div class="kv"><span>${fmtTime(w.created_at)} · ${esc(w.note || w.type)}</span><b class="${w.amount >= 0 ? "plus" : "minus"}">${w.amount >= 0 ? "+" : ""}${rp(w.amount)}</b></div>`).join("") : '<div class="muted">Belum ada mutasi.</div>'}`);
+}
+function openTopup(id) {
+  const opts = S.drivers.map((d) => `<option value="${d.id}" ${d.id === id ? "selected" : ""}>${esc(nm(d.id))} — ${esc(d.plate || "")} (${rp(d.balance)})</option>`).join("");
+  openModal(`<h2>Top up / sesuaikan saldo</h2>
+    <label>Driver</label><select id="tpDrv">${opts}</select>
+    <label>Nominal (Rp) — angka negatif untuk mengurangi</label><input id="tpAmt" type="number" inputmode="numeric" placeholder="mis. 100000">
+    <label>Catatan (opsional)</label><input id="tpNote" placeholder="mis. Transfer BCA 14 Okt">
+    <button class="btn full" id="btnTp" onclick="doTopup()">Simpan</button>`);
+}
+async function doTopup() {
+  const id = $("tpDrv").value, amt = Math.round(Number($("tpAmt").value));
+  if (!amt) return toast("Isi nominal yang valid");
+  if (!confirm(`${amt > 0 ? "Tambah" : "Kurangi"} saldo ${nm(id)} sebesar ${rp(Math.abs(amt))}?`)) return;
+  $("btnTp").disabled = true;
+  const { data, error } = await sb.rpc("admin_topup", { p_driver: id, p_amount: amt, p_note: $("tpNote").value });
+  $("btnTp").disabled = false;
+  if (error) return toast("Gagal: " + error.message + " (sudah menjalankan patch-admin.sql?)", 6000);
+  if (!data.ok) return toast(data.msg);
+  closeModal(); toast("Saldo diperbarui: " + rp(data.balance)); loadAll();
+}
+
+/* ---------- PELANGGAN ---------- */
+function rCust() {
+  const q = $("cusQ").value.trim().toLowerCase();
+  const list = Object.values(S.profiles).filter((p) => p.role === "customer" && (!q || (p.full_name + " " + p.phone).toLowerCase().includes(q)))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  $("custList").innerHTML = list.length ? list.map((p) => {
+    const os = S.orders.filter((o) => o.customer_id === p.id), ok = os.filter((o) => o.status === "completed");
+    return `<div class="card"><div class="row sb"><b>👤 ${esc(p.full_name || "-")}</b>${os.some((o) => ACTIVE.includes(o.status)) ? '<span class="pill b">Sedang order</span>' : ""}</div>
+      <div class="muted" style="margin:4px 0">${esc(p.phone || "-")} · bergabung ${fmtTime(p.created_at)}</div>
+      <div class="row sb"><span>${os.length} order · ${ok.length} selesai</span><b>${rp(ok.reduce((a, o) => a + Number(o.fare), 0))}</b></div>
+      ${p.phone ? `<div style="margin-top:8px"><a class="btn sm gray" style="text-decoration:none" href="${waLink(p.phone)}" target="_blank" rel="noopener">💬 WhatsApp</a></div>` : ""}</div>`;
+  }).join("") : '<div class="empty" style="grid-column:1/-1">Belum ada pelanggan.</div>';
+}
+
+/* ---------- KEUANGAN ---------- */
+function rFin() {
+  const t0 = startOfDay(), m0 = new Date(t0.getFullYear(), t0.getMonth(), 1);
+  const com = (from) => S.wallet.filter((w) => w.type === "commission" && new Date(w.created_at) >= from).reduce((a, w) => a - Number(w.amount), 0);
+  const top = S.wallet.filter((w) => w.type === "topup" && new Date(w.created_at) >= m0).reduce((a, w) => a + Number(w.amount), 0);
+  const bal = S.drivers.reduce((a, d) => a + Number(d.balance), 0);
+  $("finBox").innerHTML = `<div class="grid">
+      <div class="stat hi"><small>Komisi hari ini</small><b>${rp(com(t0))}</b></div>
+      <div class="stat"><small>Komisi bulan ini</small><b>${rp(com(m0))}</b></div>
+      <div class="stat"><small>Top up bulan ini</small><b>${rp(top)}</b></div>
+      <div class="stat"><small>Total saldo semua driver</small><b>${rp(bal)}</b></div></div>
+    <div class="row" style="margin-bottom:10px"><button class="btn" onclick="openTopup()">💰 Top up saldo driver</button></div>
+    <div class="card"><h3>Mutasi saldo terbaru</h3>${S.wallet.slice(0, 60).map((w) => `<div class="kv"><span>${fmtTime(w.created_at)} · ${esc(nm(w.driver_id))}<br><small>${w.type === "commission" ? "Komisi order" : w.type === "topup" ? "Top up" : "Penyesuaian"}${w.note && w.type !== "commission" ? " · " + esc(w.note) : ""}</small></span><b class="${w.amount >= 0 ? "plus" : "minus"}">${w.amount >= 0 ? "+" : ""}${rp(w.amount)}</b></div>`).join("") || '<div class="empty">Belum ada transaksi.</div>'}</div>`;
+}
+
+/* ---------- PENGATURAN ---------- */
+function rSet() {
+  if ($("setBox").dataset.dirty === "1") return;   // jangan timpa saat sedang mengetik
+  $("setBox").innerHTML = `<div class="card"><h3>Tarif &amp; aturan aplikasi</h3>
+    ${SETTINGS.map(([k, l, h]) => `<div class="set-row"><div>${l}<small>${h}</small></div><input type="number" inputmode="decimal" data-k="${k}" value="${S.settings[k] ?? ""}" oninput="$('setBox').dataset.dirty='1'"></div>`).join("")}
+    <button class="btn full" onclick="saveSettings()">Simpan pengaturan</button>
+    <p class="muted" style="margin-bottom:0">Perubahan berlaku untuk order BARU. Order yang sedang berjalan tidak berubah.</p></div>`;
+}
+async function saveSettings() {
+  const rows = [];
+  for (const el of document.querySelectorAll("#setBox input[data-k]")) {
+    const v = Number(el.value); if (el.value === "" || !isFinite(v)) return toast("Semua kolom harus berisi angka");
+    rows.push({ key: el.dataset.k, value: v });
+  }
+  const c = rows.find((r) => r.key === "commission_pct").value;
+  if (c < 0 || c > 50) return toast("Komisi harus antara 0 – 50%");
+  if (rows.find((r) => r.key === "dispatch_radius_km").value <= 0 || rows.find((r) => r.key === "offer_seconds").value < 10) return toast("Radius harus > 0 dan waktu tawaran min. 10 detik");
+  const { error } = await sb.from("settings").upsert(rows);
+  if (error) return toast("Gagal menyimpan: " + error.message, 6000);
+  $("setBox").dataset.dirty = "0"; toast("Pengaturan disimpan ✔"); loadAll();
+}
+
+sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") { $("app").classList.add("hidden"); $("auth").classList.remove("hidden"); } });
+boot();
+</script>
+</body>
+</html>
