@@ -135,6 +135,7 @@ header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-i
       <button data-t="drivers" onclick="showTab('drivers')">Driver<span class="bd hidden" id="bdDrivers"></span></button>
       <button data-t="customers" onclick="showTab('customers')">Pelanggan</button>
       <button data-t="finance" onclick="showTab('finance')">Keuangan</button>
+      <button data-t="pwr" onclick="showTab('pwr')">Reset PW<span class="bd hidden" id="bdPwr"></span></button>
       <button data-t="review" onclick="showTab('review')">Tinjauan<span class="bd hidden" id="bdReview"></span></button>
       <button data-t="topup" onclick="showTab('topup')">Top up<span class="bd hidden" id="bdTopup"></span></button>
       <button data-t="settings" onclick="showTab('settings')">Pengaturan</button>
@@ -167,6 +168,7 @@ header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-i
     </div>
 
     <div class="tabpage hidden" id="pg-finance"><div id="finBox"></div></div>
+    <div class="tabpage hidden" id="pg-pwr"><div id="pwrBox"></div></div>
     <div class="tabpage hidden" id="pg-review"><div id="revBox"></div></div>
     <div class="tabpage hidden" id="pg-topup"><div class="chips" id="tpChips"></div><div id="tpList" class="list2"></div><div class="card" id="tpEvents"></div><div class="card" id="tpSetup"></div></div>
     <div class="tabpage hidden" id="pg-settings"><div id="setBox"></div></div>
@@ -195,7 +197,7 @@ const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth
 
 const S = {
   user: null, tab: "dash", settings: {}, drivers: [], profiles: {}, orders: [], wallet: [],
-  topups: [], topEvents: [], docs: [], sanc: [], destChg: [], map: null, mk: null, f: { orders: "all", drivers: "all", topup: "all" }, loops: [], channel: null, loading: false, reload: null
+  topups: [], topEvents: [], docs: [], sanc: [], destChg: [], pwr: [], pwrKnown: null, map: null, mk: null, f: { orders: "all", drivers: "all", topup: "all" }, loops: [], channel: null, loading: false, reload: null
 };
 
 /* ---------- LABEL ---------- */
@@ -308,7 +310,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 async function loadAll() {
   if (S.loading) return; S.loading = true;
   try {
-    const [d, p, o, w, st, tq, te, dc, sc, ch] = await Promise.all([
+    const [d, p, o, w, st, tq, te, dc, sc, ch, pw] = await Promise.all([
       sb.from("drivers").select("*").limit(1000),
       sb.from("profiles").select("id,role,full_name,phone,created_at").limit(3000),
       sb.from("orders").select("*").order("created_at", { ascending: false }).limit(600),
@@ -318,10 +320,11 @@ async function loadAll() {
       sb.from("topup_events").select("*").order("created_at", { ascending: false }).limit(60),
       sb.from("driver_docs").select("*").limit(2000),
       sb.from("driver_sanctions").select("*").order("created_at", { ascending: false }).limit(400),
-      sb.from("order_dest_changes").select("*").order("created_at", { ascending: false }).limit(300)
+      sb.from("order_dest_changes").select("*").order("created_at", { ascending: false }).limit(300),
+      sb.from("password_resets").select("*").order("created_at", { ascending: false }).limit(100)
     ]);
     if (d.error || p.error || o.error) { toast("Gagal memuat data: " + (d.error || p.error || o.error).message); return; }
-    S.docs = (dc && dc.data) || []; S.sanc = (sc && sc.data) || []; S.destChg = (ch && ch.data) || [];
+    S.pwr = (pw && pw.data) || []; S.docs = (dc && dc.data) || []; S.sanc = (sc && sc.data) || []; S.destChg = (ch && ch.data) || [];
     S.topups = (tq && tq.data) || []; S.topEvents = (te && te.data) || [];
     S.drivers = d.data || []; S.orders = o.data || []; S.wallet = w.data || [];
     S.profiles = {}; (p.data || []).forEach((r) => (S.profiles[r.id] = r));
@@ -337,14 +340,19 @@ function startRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, kick)
     .on("postgres_changes", { event: "*", schema: "public", table: "topup_requests" }, kick)
     .on("postgres_changes", { event: "*", schema: "public", table: "driver_docs" }, kick)
+    .on("postgres_changes", { event: "*", schema: "public", table: "password_resets" }, kick)
     .subscribe();
 }
 function render() {
-  const f = { dash: rDash, live: rLive, orders: rOrders, drivers: rDrivers, customers: rCust, finance: rFin, review: rReview, topup: rTopup, settings: rSet }[S.tab];
+  const f = { dash: rDash, live: rLive, orders: rOrders, drivers: rDrivers, customers: rCust, finance: rFin, review: rReview, pwr: rPwr, topup: rTopup, settings: rSet }[S.tab];
   if (f) f();
   const act = S.orders.filter((o) => ACTIVE.includes(o.status)).length, pend = S.drivers.filter((d) => !d.approved && !d.banned).length;
   $("bdOrders").textContent = act; $("bdOrders").classList.toggle("hidden", !act);
   const rv = S.topups.filter((t) => t.status === "review").length;
+  const pa = pwrActive(); $("bdPwr").textContent = pa.length; $("bdPwr").classList.toggle("hidden", !pa.length);
+  const ids = new Set(pa.filter((x) => x.status === "pending").map((x) => x.id));
+  if (S.pwrKnown) { for (const id of ids) if (!S.pwrKnown.has(id)) { toast("🔑 Permintaan reset kata sandi baru — buka tab Reset PW", 6000); try { beepA(); } catch (e) {} break; } }
+  S.pwrKnown = ids;
   const ri = reviewItems(), rc = ri.neg.length + ri.flg.length;
   $("bdReview").textContent = rc; $("bdReview").classList.toggle("hidden", !rc);
   $("bdTopup").textContent = rv; $("bdTopup").classList.toggle("hidden", !rv);
@@ -725,6 +733,34 @@ function rReview() {
       <div class="row" style="margin-top:8px"><button class="btn sm red" onclick="openSanction('${d.id}')">⚖ Beri sanksi</button><button class="btn sm gray" onclick="driverDetail('${d.id}')">Detail</button></div></div>`).join("") : '<div class="empty">Tidak ada.</div>'}
     <div class="card"><h3>⏸ Sedang diskors · ${act.length}</h3>${act.length ? act.map((d) => `<div class="kv"><span>${esc(nm(d.id))}<br><small>sisa ${timeLeft(d.suspended_until)}</small></span><b><button class="btn sm gray" onclick="liftSusp('${d.id}')">Cabut</button></b></div>`).join("") : '<div class="muted">Tidak ada.</div>'}</div>
     <div class="card"><h3>Log sanksi terbaru</h3>${S.sanc.slice(0, 20).map((x) => `<div class="kv"><span>${fmtTime(x.created_at)} · ${esc(nm(x.driver_id))}<br><small>${esc(x.reason || "")}</small></span><b><span class="pill ${SKIND[x.kind][0]}">${SKIND[x.kind][1]}${x.minutes ? " " + x.minutes + "m" : ""}</span>${x.source === "auto" ? '<br><small>otomatis</small>' : ""}</b></div>`).join("") || '<div class="muted">Belum ada sanksi.</div>'}</div>`;
+}
+
+/* ---------- RESET KATA SANDI (OTP via WhatsApp) ---------- */
+function beepA() { const c = new (window.AudioContext || window.webkitAudioContext)(), o = c.createOscillator(), g = c.createGain(); o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.2; o.start(); o.stop(c.currentTime + 0.25); }
+const pwrActive = () => S.pwr.filter((x) => (x.status === "pending" || x.status === "sent") && new Date(x.expires_at) > new Date());
+async function pwrSent(id) { await sb.rpc("admin_mark_reset_sent", { p_id: id }); setTimeout(loadAll, 800); }
+async function pwrCancel(id) {
+  if (!confirm("Batalkan permintaan ini?")) return;
+  const { error } = await sb.rpc("admin_cancel_reset", { p_id: id });
+  if (error) return toast("Gagal: " + error.message, 6000);
+  toast("Dibatalkan"); loadAll();
+}
+function rPwr() {
+  const act = pwrActive(), old = S.pwr.filter((x) => !act.includes(x)).slice(0, 15);
+  const ST = { pending: ["a", "Belum dikirim"], sent: ["b", "Sudah dikirim"], used: ["g", "Berhasil dipakai"], expired: ["s", "Kedaluwarsa"], cancelled: ["s", "Dibatalkan"] };
+  const card = (x) => {
+    const p = S.profiles[x.user_id] || {}, left = Math.max(0, Math.round((new Date(x.expires_at) - Date.now()) / 60000));
+    const msg = "Kode reset kata sandi akun Ojol Anda: *" + x.otp + "*. Berlaku " + Math.max(left, 1) + " menit. JANGAN berikan kode ini kepada siapa pun, termasuk yang mengaku admin.";
+    return `<div class="card"><div class="row sb"><b>${p.role === "driver" ? "🏍" : "👤"} ${esc(p.full_name || "-")}</b><span class="pill ${ST[x.status][0]}">${ST[x.status][1]}</span></div>
+      <div class="muted" style="margin:4px 0">${p.role === "driver" ? "Driver" : "Pelanggan"} · ${esc(p.phone || "tanpa nomor")} · diminta ${ago(x.created_at)} · sisa ${left} mnt</div>
+      <div style="font-size:30px;font-weight:800;letter-spacing:6px;margin:6px 0">${esc(x.otp)}</div>
+      <div class="row">${p.phone ? `<a class="btn sm g" style="text-decoration:none" target="_blank" rel="noopener" onclick="pwrSent('${x.id}')" href="https://wa.me/${String(p.phone).replace(/\D/g, "").replace(/^0/, "62")}?text=${encodeURIComponent(msg)}">💬 Kirim lewat WhatsApp</a>` : '<span class="pill r">Tidak ada nomor HP</span>'}
+      <button class="btn sm gray" onclick="pwrCancel('${x.id}')">Batalkan</button></div></div>`;
+  };
+  $("pwrBox").innerHTML = `<div class="card"><h3>🔑 Permintaan reset kata sandi · ${act.length}</h3>
+      <div class="muted">Tekan <b>Kirim lewat WhatsApp</b> dari HP yang memakai WhatsApp nomor admin (+62 815-2586-0936). Pesan sudah terisi kode; Anda tinggal menekan kirim. Kode berlaku 10 menit.</div></div>` +
+    (act.length ? act.map(card).join("") : '<div class="empty">Tidak ada permintaan aktif.</div>') +
+    (old.length ? `<div class="card"><h3>Riwayat</h3>${old.map((x) => { const p = S.profiles[x.user_id] || {}; return `<div class="kv"><span>${fmtTime(x.created_at)} · ${esc(p.full_name || "-")}</span><b><span class="pill ${ST[x.status][0]}">${ST[x.status][1]}</span></b></div>`; }).join("")}</div>` : "");
 }
 
 /* ---------- PENGATURAN ---------- */
