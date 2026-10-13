@@ -111,7 +111,16 @@ header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-i
       <label>Kata sandi</label><input id="lPass" type="password" autocomplete="current-password" required>
       <button class="btn full" id="btnLogin">Masuk</button>
     </form>
+    <form id="formSetup" class="hidden" onsubmit="return doSetup(event)">
+      <p class="muted" style="margin:0 0 4px">Membuat <b>admin pertama</b>. Hanya bisa dilakukan sekali, selama belum ada admin.</p>
+      <label>Nama</label><input id="sName" required>
+      <label>Email admin</label><input id="sEmail" type="email" autocomplete="email" required>
+      <label>Kata sandi (min. 6 karakter)</label><input id="sPass" type="password" minlength="6" autocomplete="new-password" required>
+      <label>Kode setup</label><input id="sCode" autocomplete="off" autocapitalize="characters" required>
+      <button class="btn full" id="btnSetup">Buat admin &amp; masuk</button>
+    </form>
     <div class="err" id="authErr"></div>
+    <div style="text-align:center;margin-top:10px"><a href="#" id="lnkSetup" onclick="toggleSetup();return false" style="color:var(--a);font-size:13px;font-weight:600">Belum punya admin? Buat admin pertama</a></div>
   </div>
 </section>
 
@@ -231,6 +240,33 @@ async function doLogin(e) {
   const { error } = await sb.auth.signInWithPassword({ email: $("lEmail").value.trim(), password: $("lPass").value });
   $("btnLogin").disabled = false;
   if (error) { $("authErr").textContent = "Gagal masuk: " + (error.message.includes("Invalid") ? "email / kata sandi salah" : error.message); return false; }
+  await boot(); return false;
+}
+function toggleSetup() {
+  const openSetup = $("formSetup").classList.contains("hidden");
+  $("formSetup").classList.toggle("hidden", !openSetup);
+  document.querySelector("#auth form").classList.toggle("hidden", openSetup);
+  $("lnkSetup").textContent = openSetup ? "Kembali ke login" : "Belum punya admin? Buat admin pertama";
+  $("authErr").textContent = "";
+}
+async function doSetup(e) {
+  e.preventDefault(); $("authErr").textContent = ""; $("btnSetup").disabled = true;
+  const email = $("sEmail").value.trim(), pass = $("sPass").value;
+  const su = await sb.auth.signUp({ email, password: pass, options: { data: { role: "customer", full_name: $("sName").value.trim(), phone: "-" } } });
+  if (su.error || !su.data.session) {          // email mungkin sudah terdaftar → coba masuk dengan sandi yang sama
+    const si = await sb.auth.signInWithPassword({ email, password: pass });
+    if (si.error) {
+      $("btnSetup").disabled = false;
+      $("authErr").textContent = "Email ini sudah terdaftar dengan kata sandi lain. Pakai email lain, atau isi kata sandi yang benar.";
+      return false;
+    }
+  }
+  const { data: res, error } = await sb.rpc("claim_first_admin", { p_code: $("sCode").value.trim() });
+  $("btnSetup").disabled = false;
+  if (error || !res || !res.ok) {
+    const msg = error ? "Gagal: " + error.message + " (sudah menjalankan setup-admin.sql?)" : res.msg;
+    await sb.auth.signOut(); $("authErr").textContent = msg; return false;
+  }
   await boot(); return false;
 }
 async function logout() { stopAll(); await sb.auth.signOut(); location.reload(); }
