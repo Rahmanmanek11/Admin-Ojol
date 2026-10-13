@@ -215,12 +215,18 @@ const SETTINGS = [
   ["min_balance", "Saldo minimum agar driver bisa online & dapat order (Rp)", "Driver di bawah saldo ini tidak bisa online. Saldo tidak boleh minus (mis. 10000)"],
   ["complete_radius_m", "Radius selesai order dari titik antar (meter)", "Driver harus berada dalam jarak ini agar bisa menyelesaikan order"],
   ["dest_flag_m", "Batas geser titik antar yang ditandai curang (meter)", "Dipindah lebih jauh dari ini dari tujuan awal → masuk tab Tinjauan"],
+  ["penalty_reject", "Penalti rating: driver menolak order", "Rating berkurang sebesar ini tiap menolak tawaran (mis. 0.1)"],
+  ["penalty_cancel", "Penalti rating: driver membatalkan order yang sudah diterima", "Mis. 0.1"],
+  ["penalty_negative", "Penalti rating tambahan: ulasan negatif", "Berlaku di atas pengaruh bintang itu sendiri (mis. 0.1)"],
+  ["neg_max_stars", "Ulasan dianggap negatif jika bintang ≤", "Mis. 2"],
+  ["rating_km_penalty", "Prioritas order: tambahan jarak (km) per 1.0 rating di bawah 5", "Mis. 10 → rating 4.9 dianggap 1 km lebih jauh. Driver ber-rating rendah ditawari belakangan"],
+  ["min_rating_dispatch", "Rating minimum agar masih ditawari order", "Di bawah angka ini driver tidak mendapat order (mis. 3)"],
   ["auto_enabled", "Sanksi otomatis aktif (1 = ya, 0 = tidak)", "Skorsing otomatis saat rating rendah / sering ditandai curang"],
   ["auto_min_rating", "Batas rata-rata rating (10 order terakhir)", "Di bawah angka ini → skorsing otomatis (mis. 3.5)"],
   ["auto_min_orders", "Minimal order bernilai sebelum sanksi otomatis", "Mis. 5 — agar 1 ulasan jelek tidak langsung menghukum"],
   ["auto_flag_limit", "Jumlah tanda curang dalam 7 hari → skorsing 1 hari", "Mis. 3"]
 ];
-const NEW_KEYS = ["complete_radius_m", "dest_flag_m", "auto_enabled", "auto_min_rating", "auto_min_orders", "auto_flag_limit"];
+const NEW_KEYS = ["dispatch_max_km", "penalty_reject", "penalty_cancel", "penalty_negative", "neg_max_stars", "rating_km_penalty", "min_rating_dispatch", "complete_radius_m", "dest_flag_m", "auto_enabled", "auto_min_rating", "auto_min_orders", "auto_flag_limit"];
 
 /* ---------- UI ---------- */
 let toastT;
@@ -486,6 +492,7 @@ function rDrivers() {
       <button class="btn sm" onclick="openTopup('${d.id}')">💰 Saldo</button>
       <button class="btn sm gray" onclick="driverDetail('${d.id}')">Detail</button>
       <button class="btn sm amber" onclick="openSanction('${d.id}')">⚖ Sanksi</button>
+      ${Number(d.rating_penalty) > 0 ? `<button class="btn sm gray" onclick="resetRating('${d.id}')">↺ Rating (−${Number(d.rating_penalty).toFixed(1)})</button>` : ""}
       ${ph(d.id) ? `<a class="btn sm gray" style="text-decoration:none" href="${waLink(ph(d.id))}" target="_blank" rel="noopener">WA</a>` : ""}
     </div></div>`; }).join("") : '<div class="empty" style="grid-column:1/-1">Tidak ada driver.</div>';
 }
@@ -685,6 +692,13 @@ async function doSanction(id, orderId) {
   if (error) return toast("Gagal: " + error.message + " (sudah menjalankan patch-v2.sql?)", 6000);
   if (!data.ok) return toast(data.msg);
   closeModal(); toast("Sanksi diterapkan ✔"); loadAll();
+}
+async function resetRating(id) {
+  if (!confirm("Hapus semua penalti rating driver ini? Rating kembali ke rata-rata bintang dari pelanggan.")) return;
+  const { data, error } = await sb.rpc("admin_reset_rating", { p_driver: id });
+  if (error) return toast("Gagal: " + error.message, 6000);
+  if (!data.ok) return toast(data.msg);
+  toast("Penalti rating dihapus"); loadAll();
 }
 async function liftSusp(id) {
   if (!confirm("Cabut skorsing driver ini sekarang?")) return;
