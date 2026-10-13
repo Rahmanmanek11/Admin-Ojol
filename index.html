@@ -135,6 +135,7 @@ header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-i
       <button data-t="drivers" onclick="showTab('drivers')">Driver<span class="bd hidden" id="bdDrivers"></span></button>
       <button data-t="customers" onclick="showTab('customers')">Pelanggan</button>
       <button data-t="finance" onclick="showTab('finance')">Keuangan</button>
+      <button data-t="review" onclick="showTab('review')">Tinjauan<span class="bd hidden" id="bdReview"></span></button>
       <button data-t="topup" onclick="showTab('topup')">Top up<span class="bd hidden" id="bdTopup"></span></button>
       <button data-t="settings" onclick="showTab('settings')">Pengaturan</button>
     </div>
@@ -166,6 +167,7 @@ header.top{background:var(--dark);color:#fff;padding:calc(10px + env(safe-area-i
     </div>
 
     <div class="tabpage hidden" id="pg-finance"><div id="finBox"></div></div>
+    <div class="tabpage hidden" id="pg-review"><div id="revBox"></div></div>
     <div class="tabpage hidden" id="pg-topup"><div class="chips" id="tpChips"></div><div id="tpList" class="list2"></div><div class="card" id="tpEvents"></div><div class="card" id="tpSetup"></div></div>
     <div class="tabpage hidden" id="pg-settings"><div id="setBox"></div></div>
   </div>
@@ -193,7 +195,7 @@ const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth
 
 const S = {
   user: null, tab: "dash", settings: {}, drivers: [], profiles: {}, orders: [], wallet: [],
-  topups: [], topEvents: [], map: null, mk: null, f: { orders: "all", drivers: "all", topup: "all" }, loops: [], channel: null, loading: false, reload: null
+  topups: [], topEvents: [], docs: [], sanc: [], destChg: [], map: null, mk: null, f: { orders: "all", drivers: "all", topup: "all" }, loops: [], channel: null, loading: false, reload: null
 };
 
 /* ---------- LABEL ---------- */
@@ -207,8 +209,15 @@ const SETTINGS = [
   ["per_km_mobil", "Tarif per km mobil (Rp)", ""],
   ["dispatch_radius_km", "Radius cari driver (km)", "Driver di luar radius tidak ditawari"],
   ["offer_seconds", "Waktu tawaran ke driver (detik)", "Batas waktu driver menerima / menolak"],
-  ["min_balance", "Saldo minimum agar driver bisa online (Rp)", "Boleh negatif, mis. -50000"]
+  ["min_balance", "Saldo minimum agar driver bisa online (Rp)", "Boleh negatif, mis. -50000"],
+  ["complete_radius_m", "Radius selesai order dari titik antar (meter)", "Driver harus berada dalam jarak ini agar bisa menyelesaikan order"],
+  ["dest_flag_m", "Batas geser titik antar yang ditandai curang (meter)", "Dipindah lebih jauh dari ini dari tujuan awal → masuk tab Tinjauan"],
+  ["auto_enabled", "Sanksi otomatis aktif (1 = ya, 0 = tidak)", "Skorsing otomatis saat rating rendah / sering ditandai curang"],
+  ["auto_min_rating", "Batas rata-rata rating (10 order terakhir)", "Di bawah angka ini → skorsing otomatis (mis. 3.5)"],
+  ["auto_min_orders", "Minimal order bernilai sebelum sanksi otomatis", "Mis. 5 — agar 1 ulasan jelek tidak langsung menghukum"],
+  ["auto_flag_limit", "Jumlah tanda curang dalam 7 hari → skorsing 1 hari", "Mis. 3"]
 ];
+const NEW_KEYS = ["complete_radius_m", "dest_flag_m", "auto_enabled", "auto_min_rating", "auto_min_orders", "auto_flag_limit"];
 
 /* ---------- UI ---------- */
 let toastT;
@@ -221,7 +230,9 @@ const waLink = (p) => "https://wa.me/" + String(p).replace(/\D/g, "").replace(/^
 const ago = (t) => { if (!t) return "-"; const s = (Date.now() - new Date(t)) / 1000; return s < 60 ? "baru saja" : s < 3600 ? Math.floor(s / 60) + " mnt lalu" : s < 86400 ? Math.floor(s / 3600) + " jam lalu" : Math.floor(s / 86400) + " hari lalu"; };
 const fresh = (d) => d.last_seen && Date.now() - new Date(d.last_seen) < 3 * 60 * 1000;
 function drvState(d) {
-  if (d.banned) return ["r", "Diblokir"]; if (!d.approved) return ["a", "Menunggu persetujuan"];
+  if (d.banned) return ["r", "Diblokir"];
+  if (d.suspended_until && new Date(d.suspended_until) > new Date()) return ["r", "Diskors"];
+  if (!d.approved) return ["a", "Menunggu persetujuan"];
   if (d.status === "offline") return ["s", "Offline"];
   if (!fresh(d)) return ["s", "Terputus"];
   return d.status === "busy" ? ["p", "Sibuk"] : ["g", "Online"];
@@ -286,7 +297,7 @@ async function boot() {
   $("hUser").textContent = me.full_name || S.user.email;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   chips("ordChips", [["all", "Semua"], ["active", "Aktif"], ["completed", "Selesai"], ["cancelled", "Batal"]], "orders", "rOrders");
-  chips("drvChips", [["all", "Semua"], ["pending", "Menunggu"], ["online", "Online"], ["busy", "Sibuk"], ["offline", "Offline"], ["banned", "Diblokir"]], "drivers", "rDrivers");
+  chips("drvChips", [["all", "Semua"], ["pending", "Menunggu"], ["online", "Online"], ["busy", "Sibuk"], ["offline", "Offline"], ["docs", "Dokumen"], ["banned", "Diblokir"]], "drivers", "rDrivers");
   await loadAll(); startRealtime();
   S.loops.push(setInterval(loadAll, 10000));
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
@@ -297,16 +308,20 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 async function loadAll() {
   if (S.loading) return; S.loading = true;
   try {
-    const [d, p, o, w, st, tq, te] = await Promise.all([
+    const [d, p, o, w, st, tq, te, dc, sc, ch] = await Promise.all([
       sb.from("drivers").select("*").limit(1000),
       sb.from("profiles").select("id,role,full_name,phone,created_at").limit(3000),
       sb.from("orders").select("*").order("created_at", { ascending: false }).limit(600),
       sb.from("wallet_tx").select("*").order("created_at", { ascending: false }).limit(400),
       sb.from("settings").select("*"),
       sb.from("topup_requests").select("*").order("created_at", { ascending: false }).limit(300),
-      sb.from("topup_events").select("*").order("created_at", { ascending: false }).limit(60)
+      sb.from("topup_events").select("*").order("created_at", { ascending: false }).limit(60),
+      sb.from("driver_docs").select("*").limit(2000),
+      sb.from("driver_sanctions").select("*").order("created_at", { ascending: false }).limit(400),
+      sb.from("order_dest_changes").select("*").order("created_at", { ascending: false }).limit(300)
     ]);
     if (d.error || p.error || o.error) { toast("Gagal memuat data: " + (d.error || p.error || o.error).message); return; }
+    S.docs = (dc && dc.data) || []; S.sanc = (sc && sc.data) || []; S.destChg = (ch && ch.data) || [];
     S.topups = (tq && tq.data) || []; S.topEvents = (te && te.data) || [];
     S.drivers = d.data || []; S.orders = o.data || []; S.wallet = w.data || [];
     S.profiles = {}; (p.data || []).forEach((r) => (S.profiles[r.id] = r));
@@ -321,14 +336,17 @@ function startRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, kick)
     .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, kick)
     .on("postgres_changes", { event: "*", schema: "public", table: "topup_requests" }, kick)
+    .on("postgres_changes", { event: "*", schema: "public", table: "driver_docs" }, kick)
     .subscribe();
 }
 function render() {
-  const f = { dash: rDash, live: rLive, orders: rOrders, drivers: rDrivers, customers: rCust, finance: rFin, topup: rTopup, settings: rSet }[S.tab];
+  const f = { dash: rDash, live: rLive, orders: rOrders, drivers: rDrivers, customers: rCust, finance: rFin, review: rReview, topup: rTopup, settings: rSet }[S.tab];
   if (f) f();
   const act = S.orders.filter((o) => ACTIVE.includes(o.status)).length, pend = S.drivers.filter((d) => !d.approved && !d.banned).length;
   $("bdOrders").textContent = act; $("bdOrders").classList.toggle("hidden", !act);
   const rv = S.topups.filter((t) => t.status === "review").length;
+  const ri = reviewItems(), rc = ri.neg.length + ri.flg.length;
+  $("bdReview").textContent = rc; $("bdReview").classList.toggle("hidden", !rc);
   $("bdTopup").textContent = rv; $("bdTopup").classList.toggle("hidden", !rv);
   $("bdDrivers").textContent = pend; $("bdDrivers").classList.toggle("hidden", !pend);
 }
@@ -424,6 +442,8 @@ function orderDetail(id) {
     <div class="kv"><span>Diterima driver</span><b>${fmtTime(o.accepted_at)}</b></div>
     <div class="kv"><span>Mulai jalan</span><b>${fmtTime(o.started_at)}</b></div>
     <div class="kv"><span>Selesai</span><b>${fmtTime(o.completed_at)}</b></div>
+    ${o.dest_changed ? `<div class="kv"><span>Titik antar diubah driver</span><b>${o.dest_change_count}x${o.flagged ? ' <span class="pill r">🚩 ditandai</span>' : ""}<br><small class="muted">${esc(o.flag_reason || "")}</small></b></div>` : ""}
+    ${o.complete_dist_m != null ? `<div class="kv"><span>Jarak driver saat selesai</span><b>${o.complete_dist_m} m dari titik antar</b></div>` : ""}
     ${o.rating ? `<div class="kv"><span>Rating</span><b style="color:#f59e0b">${"★".repeat(o.rating)}${o.review ? "<br><small class='muted'>" + esc(o.review) + "</small>" : ""}</b></div>` : ""}
     ${o.status === "cancelled" ? `<div class="kv"><span>Dibatalkan oleh</span><b>${esc(o.cancelled_by || "-")}<br><small class="muted">${esc(o.cancel_reason || "")}</small></b></div>` : ""}
     ${ACTIVE.includes(o.status) ? `<button class="btn red full" onclick="adminCancel('${o.id}')">Batalkan order ini</button>` : ""}`);
@@ -438,16 +458,17 @@ async function adminCancel(id) {
 
 /* ---------- DRIVER ---------- */
 function rDrivers() {
-  chips("drvChips", [["all", "Semua"], ["pending", "Menunggu"], ["online", "Online"], ["busy", "Sibuk"], ["offline", "Offline"], ["banned", "Diblokir"]], "drivers", "rDrivers");
+  chips("drvChips", [["all", "Semua"], ["pending", "Menunggu"], ["online", "Online"], ["busy", "Sibuk"], ["offline", "Offline"], ["docs", "Dokumen"], ["banned", "Diblokir"]], "drivers", "rDrivers");
   const q = $("drvQ").value.trim().toLowerCase(), f = S.f.drivers;
   const list = S.drivers.filter((d) => {
     const s = drvState(d)[1];
-    const okF = f === "all" || (f === "pending" && !d.approved && !d.banned) || (f === "banned" && d.banned) ||
+    const okF = f === "all" || (f === "docs" && docPending(d.id)) || (f === "pending" && !d.approved && !d.banned) || (f === "banned" && d.banned) ||
       (f === "online" && s === "Online") || (f === "busy" && s === "Sibuk") || (f === "offline" && (s === "Offline" || s === "Terputus"));
     return okF && (!q || [nm(d.id), ph(d.id), d.plate, d.vehicle_model].join(" ").toLowerCase().includes(q));
   });
   $("driverList").innerHTML = list.length ? list.map((d) => { const st = drvState(d); return `<div class="card">
     <div class="row sb"><b>${d.vehicle_type === "motor" ? "🏍" : "🚗"} ${esc(nm(d.id))}</b><span class="pill ${st[0]}">${st[1]}</span></div>
+    <div style="margin:4px 0">${docBadge(d)}${isSuspD(d) ? ` <span class="pill r">sisa ${timeLeft(d.suspended_until)}</span>` : ""}</div>
     <div class="muted" style="margin:4px 0">${esc(d.vehicle_model || "-")} · <b>${esc(d.plate || "-")}</b> · ${esc(ph(d.id) || "-")}</div>
     <div class="row sb" style="margin-bottom:8px"><span>⭐ ${Number(d.rating).toFixed(2)} · ${d.total_trips} trip</span><b class="${d.balance < 0 ? "minus" : ""}">${rp(d.balance)}</b></div>
     <div class="row">
@@ -455,6 +476,7 @@ function rDrivers() {
       ${d.banned ? `<button class="btn sm gray" onclick="setDriver('${d.id}',true,false)">Buka blokir</button>` : `<button class="btn sm red" onclick="setDriver('${d.id}',${d.approved},true)">Blokir</button>`}
       <button class="btn sm" onclick="openTopup('${d.id}')">💰 Saldo</button>
       <button class="btn sm gray" onclick="driverDetail('${d.id}')">Detail</button>
+      <button class="btn sm amber" onclick="openSanction('${d.id}')">⚖ Sanksi</button>
       ${ph(d.id) ? `<a class="btn sm gray" style="text-decoration:none" href="${waLink(ph(d.id))}" target="_blank" rel="noopener">WA</a>` : ""}
     </div></div>`; }).join("") : '<div class="empty" style="grid-column:1/-1">Tidak ada driver.</div>';
 }
@@ -477,8 +499,13 @@ function driverDetail(id) {
     <div class="kv"><span>Terakhir aktif</span><b>${ago(d.last_seen)}</b></div>
     <div class="kv"><span>Bergabung</span><b>${fmtTime(d.created_at)}</b></div>
     <div class="kv"><span>Order (600 terakhir)</span><b>${os.length} (${os.filter((o) => o.status === "completed").length} selesai)</b></div>
+    ${isSuspD(d) ? `<div class="kv"><span>Skorsing</span><b>sisa ${timeLeft(d.suspended_until)} <button class="btn sm gray" onclick="liftSusp('${d.id}')">Cabut</button></b></div>` : ""}
+    <div class="row" style="margin:8px 0"><button class="btn sm amber" onclick="openSanction('${d.id}')">⚖ Beri sanksi</button></div>
+    ${docsSection(d.id, d.vehicle_type)}
+    ${sancSection(d.id)}
     <h3 style="margin:14px 0 4px;font-size:14px">Mutasi saldo terakhir</h3>
     ${tx.length ? tx.map((w) => `<div class="kv"><span>${fmtTime(w.created_at)} · ${esc(w.note || w.type)}</span><b class="${w.amount >= 0 ? "plus" : "minus"}">${w.amount >= 0 ? "+" : ""}${rp(w.amount)}</b></div>`).join("") : '<div class="muted">Belum ada mutasi.</div>'}`);
+  showDocImgs(id);
 }
 function openTopup(id) {
   const opts = S.drivers.map((d) => `<option value="${d.id}" ${d.id === id ? "selected" : ""}>${esc(nm(d.id))} — ${esc(d.plate || "")} (${rp(d.balance)})</option>`).join("");
@@ -573,6 +600,133 @@ async function reviewTopup(id, ok) {
   toast(ok ? "Saldo dikreditkan ✔" : "Ditolak"); loadAll();
 }
 
+/* ---------- DOKUMEN, SANKSI, TINJAUAN ---------- */
+const DOCK = ["ktp", "stnk", "sim", "selfie"];
+const DOCT = (k, veh) => (k === "ktp" ? "KTP" : k === "stnk" ? "STNK" : k === "sim" ? (veh === "mobil" ? "SIM A (mobil)" : "SIM C (motor)") : "Selfie");
+const docsOf = (id) => S.docs.filter((x) => x.driver_id === id);
+const docPending = (id) => docsOf(id).some((x) => x.status === "pending");
+const isSuspD = (d) => d.suspended_until && new Date(d.suspended_until) > new Date();
+const timeLeft = (t) => { const s = Math.max(0, Math.round((new Date(t) - Date.now()) / 1000)); return s >= 86400 ? Math.floor(s / 86400) + " hari " + Math.floor((s % 86400) / 3600) + " jam" : s >= 3600 ? Math.floor(s / 3600) + " jam " + Math.floor((s % 3600) / 60) + " mnt" : Math.max(1, Math.ceil(s / 60)) + " mnt"; };
+const SKIND = { warning: ["a", "Peringatan"], suspension: ["r", "Skorsing"], ban: ["r", "Blokir"], lift: ["g", "Dicabut"] };
+const mapLink = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
+
+function docBadge(d) {
+  if (!d.docs_required && !docsOf(d.id).length) return "";
+  const ds = docsOf(d.id), ok = ds.filter((x) => x.status === "approved").length, rej = ds.filter((x) => x.status === "rejected").length;
+  const cls = ok === 4 ? "g" : docPending(d.id) ? "a" : rej || ds.length < 4 ? "r" : "s";
+  return `<span class="pill ${cls}">📄 ${ok}/4 dokumen${docPending(d.id) ? " · perlu dicek" : ""}</span>`;
+}
+
+async function showDocImgs(id) {
+  for (const x of docsOf(id)) {
+    const { data } = await sb.storage.from("driver-docs").createSignedUrl(x.path, 600);
+    const im = document.getElementById("di_" + x.kind);
+    if (im && data) { im.src = data.signedUrl; im.parentElement.href = data.signedUrl; }
+  }
+}
+async function reviewDoc(id, kind, ok) {
+  let reason = "";
+  if (!ok) { reason = prompt("Alasan menolak (akan terlihat oleh driver), mis. 'Foto buram, ambil ulang':"); if (!reason || !reason.trim()) return; }
+  const { data, error } = await sb.rpc("admin_review_doc", { p_driver: id, p_kind: kind, p_ok: ok, p_reason: reason });
+  if (error) return toast("Gagal: " + error.message + " (sudah menjalankan patch-v2.sql?)", 6000);
+  if (!data.ok) return toast(data.msg);
+  toast(ok ? "Dokumen disetujui ✔" : "Dokumen ditolak"); await loadAll(); driverDetail(id);
+}
+function docsSection(id, veh) {
+  const ds = docsOf(id);
+  if (!ds.length) return `<h3 style="margin:14px 0 4px;font-size:14px">Dokumen</h3><div class="muted">Belum ada dokumen diunggah.</div>`;
+  return `<h3 style="margin:14px 0 6px;font-size:14px">Dokumen verifikasi</h3>` + DOCK.map((k) => {
+    const x = ds.find((y) => y.kind === k);
+    if (!x) return `<div class="kv"><span>${DOCT(k, veh)}</span><b><span class="pill r">Belum diunggah</span></b></div>`;
+    const pill = x.status === "approved" ? '<span class="pill g">Disetujui</span>' : x.status === "pending" ? '<span class="pill a">Perlu dicek</span>' : '<span class="pill r">Ditolak</span>';
+    return `<div style="border:1px solid var(--line);border-radius:12px;padding:8px;margin-bottom:8px">
+      <div class="row sb"><b>${DOCT(k, veh)}</b>${pill}</div>
+      <a target="_blank" rel="noopener"><img id="di_${k}" alt="${DOCT(k, veh)}" style="width:100%;max-height:260px;object-fit:contain;background:#f3f4f6;border-radius:8px;margin:6px 0"></a>
+      <div class="muted">Diunggah ${fmtTime(x.uploaded_at)}${x.reject_reason ? " · ditolak: " + esc(x.reject_reason) : ""} · ketuk foto untuk ukuran penuh</div>
+      <div class="row" style="margin-top:6px"><button class="btn sm g" onclick="reviewDoc('${id}','${k}',true)">✔ Setujui</button><button class="btn sm red" onclick="reviewDoc('${id}','${k}',false)">✕ Tolak</button></div></div>`;
+  }).join("");
+}
+function sancSection(id) {
+  const ss = S.sanc.filter((x) => x.driver_id === id).slice(0, 12);
+  return `<h3 style="margin:14px 0 4px;font-size:14px">Riwayat sanksi</h3>` + (ss.length ? ss.map((x) => `<div class="kv"><span>${fmtTime(x.created_at)} · <span class="pill ${SKIND[x.kind][0]}">${SKIND[x.kind][1]}${x.minutes ? " " + x.minutes + " mnt" : ""}</span>${x.source === "auto" ? ' <span class="pill s">otomatis</span>' : ""}<br><small>${esc(x.reason || "")}</small></span></div>`).join("") : '<div class="muted">Belum ada sanksi.</div>');
+}
+
+/* --- beri sanksi --- */
+function openSanction(id, orderId) {
+  const d = S.drivers.find((x) => x.id === id); if (!d) return;
+  const o = orderId ? S.orders.find((x) => x.id === orderId) : null;
+  openModal(`<h2>Beri sanksi</h2><div style="margin-bottom:6px"><b>${esc(nm(id))}</b> · ⭐ ${Number(d.rating).toFixed(2)}${isSuspD(d) ? ` <span class="pill r">Diskors ${timeLeft(d.suspended_until)} lagi</span>` : ""}</div>
+    ${o ? `<div class="muted" style="margin-bottom:6px">Terkait order #${esc(o.id.slice(0, 8))}${o.rating ? " · " + "★".repeat(o.rating) : ""}${o.review ? " · “" + esc(o.review) + "”" : ""}${o.flag_reason ? "<br>" + esc(o.flag_reason) : ""}</div>` : ""}
+    <label>Jenis sanksi</label>
+    <select id="snKind" onchange="$('snDur').parentElement.classList.toggle('hidden', this.value!=='suspension')">
+      <option value="warning">⚠️ Peringatan (akun tetap normal)</option><option value="suspension" selected>⏸ Skorsing (tidak bisa online selama waktu tertentu)</option><option value="ban">⛔ Blokir permanen</option></select>
+    <div><label>Lama skorsing</label><select id="snDur">
+      <option value="30">30 menit</option><option value="60">1 jam</option><option value="180">3 jam</option><option value="360">6 jam</option><option value="720">12 jam</option>
+      <option value="1440">1 hari</option><option value="4320">3 hari</option><option value="10080">7 hari</option><option value="20160">14 hari</option><option value="43200">30 hari</option></select></div>
+    <label>Alasan (terlihat oleh driver)</label><textarea id="snWhy" rows="3" placeholder="mis. Ulasan pelanggan: driver kasar / menurunkan penumpang bukan di tujuan"></textarea>
+    <button class="btn full red" id="snGo" onclick="doSanction('${id}','${orderId || ""}')">Terapkan sanksi</button>`);
+}
+async function doSanction(id, orderId) {
+  const kind = $("snKind").value, mins = Number($("snDur").value), why = $("snWhy").value.trim();
+  if (!why) return toast("Alasan wajib diisi");
+  if (kind === "ban" && !confirm("Blokir permanen driver ini?")) return;
+  $("snGo").disabled = true;
+  const { data, error } = await sb.rpc("admin_sanction", { p_driver: id, p_kind: kind, p_minutes: kind === "suspension" ? mins : null, p_reason: why, p_order: orderId || null });
+  $("snGo").disabled = false;
+  if (error) return toast("Gagal: " + error.message + " (sudah menjalankan patch-v2.sql?)", 6000);
+  if (!data.ok) return toast(data.msg);
+  closeModal(); toast("Sanksi diterapkan ✔"); loadAll();
+}
+async function liftSusp(id) {
+  if (!confirm("Cabut skorsing driver ini sekarang?")) return;
+  const { data, error } = await sb.rpc("admin_lift_sanction", { p_driver: id });
+  if (error) return toast("Gagal: " + error.message, 6000);
+  if (!data.ok) return toast(data.msg);
+  toast("Skorsing dicabut"); loadAll();
+}
+async function checkReview(orderId) {
+  const { data, error } = await sb.rpc("admin_check_review", { p_order: orderId });
+  if (error) return toast("Gagal: " + error.message, 6000);
+  if (!data.ok) return toast(data.msg);
+  toast("Ditandai sudah diperiksa"); loadAll();
+}
+
+/* --- tab Tinjauan --- */
+function reviewItems() {
+  const neg = S.orders.filter((o) => o.driver_id && o.rating && o.rating <= 2 && !o.review_checked);
+  const flg = S.orders.filter((o) => o.flagged && !o.review_checked);
+  const low = S.drivers.filter((d) => {
+    if (d.banned || isSuspD(d)) return false;
+    const rs = S.orders.filter((o) => o.driver_id === d.id && o.status === "completed" && o.rating).sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at)).slice(0, 10);
+    d._avg = rs.length ? rs.reduce((a, o) => a + o.rating, 0) / rs.length : null; d._n = rs.length;
+    return rs.length >= 5 && d._avg < 4;
+  });
+  return { neg, flg, low };
+}
+function rReview() {
+  const { neg, flg, low } = reviewItems();
+  const act = S.drivers.filter(isSuspD);
+  const orderCard = (o, extra) => `<div class="card"><div class="row sb"><b>${esc(nm(o.driver_id))}</b><span class="muted">${fmtTime(o.completed_at || o.created_at)}</span></div>
+    <div class="muted" style="margin:4px 0">Pelanggan: ${esc(nm(o.customer_id))} · order #${esc(o.id.slice(0, 8))}</div>${extra}
+    <div class="row" style="margin-top:8px"><button class="btn sm red" onclick="openSanction('${o.driver_id}','${o.id}')">⚖ Beri sanksi</button><button class="btn sm gray" onclick="checkReview('${o.id}')">Abaikan</button><button class="btn sm gray" onclick="orderDetail('${o.id}')">Detail order</button></div></div>`;
+  $("revBox").innerHTML = `
+    <div class="card"><h3>⭐ Ulasan negatif (bintang 1–2) belum diperiksa · ${neg.length}</h3></div>
+    ${neg.length ? neg.map((o) => orderCard(o, `<div style="color:#f59e0b;font-size:18px">${"★".repeat(o.rating)}${"☆".repeat(5 - o.rating)}</div><div>${o.review ? "“" + esc(o.review) + "”" : '<span class="muted">(tanpa komentar)</span>'}</div>`)).join("") : '<div class="empty">Tidak ada.</div>'}
+    <div class="card"><h3>🚩 Titik antar dipindah jauh (diduga curang) · ${flg.length}</h3></div>
+    ${flg.length ? flg.map((o) => {
+      const ch = S.destChg.filter((c) => c.order_id === o.id);
+      return orderCard(o, `<div>${esc(o.flag_reason || "")}</div>
+        <div class="muted" style="margin-top:4px">Jarak saat selesai: ${o.complete_dist_m != null ? o.complete_dist_m + " m" : "-"} · Tarif ${rp(o.fare)}</div>
+        <div class="row" style="margin-top:6px"><a class="btn sm gray" style="text-decoration:none" target="_blank" rel="noopener" href="${mapLink(o.orig_dest_lat ?? o.dest_lat, o.orig_dest_lng ?? o.dest_lng)}">🗺 Tujuan awal</a><a class="btn sm gray" style="text-decoration:none" target="_blank" rel="noopener" href="${mapLink(o.dest_lat, o.dest_lng)}">🗺 Titik antar akhir</a></div>
+        ${ch.map((c) => `<div class="muted">• ${fmtTime(c.created_at)}: geser ${c.moved_m} m (dari awal ${c.from_orig_m} m) — ${esc(c.reason)}</div>`).join("")}`);
+    }).join("") : '<div class="empty">Tidak ada.</div>'}
+    <div class="card"><h3>📉 Driver rating rendah (rata-rata 10 order terakhir &lt; 4,0) · ${low.length}</h3></div>
+    ${low.length ? low.map((d) => `<div class="card"><div class="row sb"><b>${esc(nm(d.id))}</b><span class="pill r">⭐ ${d._avg.toFixed(2)} (${d._n} order)</span></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm red" onclick="openSanction('${d.id}')">⚖ Beri sanksi</button><button class="btn sm gray" onclick="driverDetail('${d.id}')">Detail</button></div></div>`).join("") : '<div class="empty">Tidak ada.</div>'}
+    <div class="card"><h3>⏸ Sedang diskors · ${act.length}</h3>${act.length ? act.map((d) => `<div class="kv"><span>${esc(nm(d.id))}<br><small>sisa ${timeLeft(d.suspended_until)}</small></span><b><button class="btn sm gray" onclick="liftSusp('${d.id}')">Cabut</button></b></div>`).join("") : '<div class="muted">Tidak ada.</div>'}</div>
+    <div class="card"><h3>Log sanksi terbaru</h3>${S.sanc.slice(0, 20).map((x) => `<div class="kv"><span>${fmtTime(x.created_at)} · ${esc(nm(x.driver_id))}<br><small>${esc(x.reason || "")}</small></span><b><span class="pill ${SKIND[x.kind][0]}">${SKIND[x.kind][1]}${x.minutes ? " " + x.minutes + "m" : ""}</span>${x.source === "auto" ? '<br><small>otomatis</small>' : ""}</b></div>`).join("") || '<div class="muted">Belum ada sanksi.</div>'}</div>`;
+}
+
 /* ---------- PENGATURAN ---------- */
 function rSet() {
   if ($("setBox").dataset.dirty === "1") return;   // jangan timpa saat sedang mengetik
@@ -584,6 +738,7 @@ function rSet() {
 async function saveSettings() {
   const rows = [];
   for (const el of document.querySelectorAll("#setBox input[data-k]")) {
+    if (el.value === "" && NEW_KEYS.includes(el.dataset.k)) continue;   // belum menjalankan patch-v2.sql
     const v = Number(el.value); if (el.value === "" || !isFinite(v)) return toast("Semua kolom harus berisi angka");
     rows.push({ key: el.dataset.k, value: v });
   }
