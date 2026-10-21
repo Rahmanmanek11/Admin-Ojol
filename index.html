@@ -197,7 +197,7 @@ const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth
 
 const S = {
   user: null, tab: "dash", settings: {}, drivers: [], profiles: {}, orders: [], wallet: [],
-  topups: [], topEvents: [], docs: [], sanc: [], destChg: [], pwr: [], pwrKnown: null, map: null, mk: null, f: { orders: "all", drivers: "all", topup: "all" }, loops: [], channel: null, loading: false, reload: null
+  topups: [], topEvents: [], docs: [], sanc: [], destChg: [], fareLog: [], trMap: null, pwr: [], pwrKnown: null, map: null, mk: null, f: { orders: "all", drivers: "all", topup: "all" }, loops: [], channel: null, loading: false, reload: null
 };
 
 /* ---------- LABEL ---------- */
@@ -209,8 +209,7 @@ const SETTINGS = [
   ["per_km_motor", "Tarif per km motor (Rp)", ""],
   ["base_fare_mobil", "Tarif dasar mobil (Rp)", "Tarif minimum"],
   ["per_km_mobil", "Tarif per km mobil (Rp)", ""],
-  ["dispatch_radius_km", "Radius cari driver (km)", "Driver di dalam radius ditawari lebih dulu"],
-  ["dispatch_max_km", "Jarak maksimum bila radius kosong (km)", "Bila tidak ada driver di dalam radius, driver terdekat sampai jarak ini yang ditawari"],
+  ["dispatch_radius_km", "Batas jarak driver ke titik jemput (km)", "Order ditawarkan mulai dari driver TERDEKAT. Driver yang lebih jauh dari batas ini TIDAK akan mendapat order. Jarak perjalanan penumpang (jemput → tujuan) tidak dibatasi."],
   ["offer_seconds", "Waktu tawaran ke driver (detik)", "Batas waktu driver menerima / menolak"],
   ["min_balance", "Saldo minimum agar driver bisa online & dapat order (Rp)", "Driver di bawah saldo ini tidak bisa online. Saldo tidak boleh minus (mis. 10000)"],
   ["complete_radius_m", "Radius selesai order dari titik antar (meter)", "Driver harus berada dalam jarak ini agar bisa menyelesaikan order"],
@@ -231,8 +230,8 @@ const NEW_KEYS = ["dispatch_max_km", "penalty_reject", "penalty_cancel", "penalt
 /* ---------- UI ---------- */
 let toastT;
 function toast(m, ms = 3200) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), ms); }
-function openModal(html) { $("mBody").innerHTML = html; $("modal").classList.remove("hidden"); }
-function closeModal() { $("modal").classList.add("hidden"); $("mBody").innerHTML = ""; }
+function openModal(html, wide) { $("mBody").innerHTML = html; document.querySelector("#modal .mbox").style.maxWidth = wide ? "860px" : "520px"; $("modal").classList.remove("hidden"); }
+function closeModal() { if (S.trMap) { S.trMap.remove(); S.trMap = null; } $("modal").classList.add("hidden"); $("mBody").innerHTML = ""; }
 const nm = (id) => (S.profiles[id] && S.profiles[id].full_name) || "—";
 const ph = (id) => (S.profiles[id] && S.profiles[id].phone) || "";
 const waLink = (p) => "https://wa.me/" + String(p).replace(/\D/g, "").replace(/^0/, "62");
@@ -305,7 +304,7 @@ async function boot() {
   }
   $("hUser").textContent = me.full_name || S.user.email;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
-  chips("ordChips", [["all", "Semua"], ["active", "Aktif"], ["completed", "Selesai"], ["cancelled", "Batal"]], "orders", "rOrders");
+  chips("ordChips", [["all", "Semua"], ["active", "Aktif"], ["completed", "Selesai"], ["cancelled", "Batal"], ["changed", "📍 Titik antar diubah"]], "orders", "rOrders");
   chips("drvChips", [["all", "Semua"], ["pending", "Menunggu"], ["online", "Online"], ["busy", "Sibuk"], ["offline", "Offline"], ["docs", "Dokumen"], ["banned", "Diblokir"]], "drivers", "rDrivers");
   await loadAll(); startRealtime();
   S.loops.push(setInterval(loadAll, 10000));
@@ -317,7 +316,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 async function loadAll() {
   if (S.loading) return; S.loading = true;
   try {
-    const [d, p, o, w, st, tq, te, dc, sc, ch, pw] = await Promise.all([
+    const [d, p, o, w, st, tq, te, dc, sc, ch, pw, fl] = await Promise.all([
       sb.from("drivers").select("*").limit(1000),
       sb.from("profiles").select("id,role,full_name,phone,created_at").limit(3000),
       sb.from("orders").select("*").order("created_at", { ascending: false }).limit(600),
@@ -328,10 +327,11 @@ async function loadAll() {
       sb.from("driver_docs").select("*").limit(2000),
       sb.from("driver_sanctions").select("*").order("created_at", { ascending: false }).limit(400),
       sb.from("order_dest_changes").select("*").order("created_at", { ascending: false }).limit(300),
-      sb.from("password_resets").select("*").order("created_at", { ascending: false }).limit(100)
+      sb.from("password_resets").select("*").order("created_at", { ascending: false }).limit(100),
+      sb.from("order_fare_log").select("*").order("created_at", { ascending: false }).limit(500)
     ]);
     if (d.error || p.error || o.error) { toast("Gagal memuat data: " + (d.error || p.error || o.error).message); return; }
-    S.pwr = (pw && pw.data) || []; S.docs = (dc && dc.data) || []; S.sanc = (sc && sc.data) || []; S.destChg = (ch && ch.data) || [];
+    S.pwr = (pw && pw.data) || []; S.docs = (dc && dc.data) || []; S.sanc = (sc && sc.data) || []; S.destChg = (ch && ch.data) || []; S.fareLog = (fl && fl.data) || [];
     S.topups = (tq && tq.data) || []; S.topEvents = (te && te.data) || [];
     S.drivers = d.data || []; S.orders = o.data || []; S.wallet = w.data || [];
     S.profiles = {}; (p.data || []).forEach((r) => (S.profiles[r.id] = r));
@@ -432,9 +432,9 @@ function rLive() {
 
 /* ---------- ORDER ---------- */
 function rOrders() {
-  chips("ordChips", [["all", "Semua"], ["active", "Aktif"], ["completed", "Selesai"], ["cancelled", "Batal"]], "orders", "rOrders");
+  chips("ordChips", [["all", "Semua"], ["active", "Aktif"], ["completed", "Selesai"], ["cancelled", "Batal"], ["changed", "📍 Titik antar diubah"]], "orders", "rOrders");
   const q = $("ordQ").value.trim().toLowerCase(), f = S.f.orders;
-  const list = S.orders.filter((o) => (f === "all" || (f === "active" ? ACTIVE.includes(o.status) : o.status === f)) &&
+  const list = S.orders.filter((o) => (f === "all" || (f === "active" ? ACTIVE.includes(o.status) : f === "changed" ? !!o.dest_changed : o.status === f)) &&
     (!q || [nm(o.customer_id), nm(o.driver_id), o.pickup_address, o.dest_address].join(" ").toLowerCase().includes(q)));
   $("orderList").innerHTML = list.length ? list.slice(0, 150).map((o) => `<div class="card" style="cursor:pointer" onclick="orderDetail('${o.id}')">
     <div class="row sb"><b>${fmtTime(o.created_at)}</b><span class="pill ${OST[o.status][0]}">${OST[o.status][1]}</span></div>
@@ -452,6 +452,7 @@ function orderDetail(id) {
     <div class="kv"><span>Tujuan</span><b>${esc(o.dest_address || "-")}</b></div>
     <div class="kv"><span>Jarak</span><b>${Number(o.distance_km).toFixed(1)} km</b></div>
     <div class="kv"><span>Tarif (tunai)</span><b>${rp(o.fare)}</b></div>
+    ${fareSection(o)}
     ${tx ? `<div class="kv"><span>Komisi aplikasi</span><b>${rp(-tx.amount)}</b></div>` : ""}
     <div class="kv"><span>Dibuat</span><b>${fmtTime(o.created_at)}</b></div>
     <div class="kv"><span>Diterima driver</span><b>${fmtTime(o.accepted_at)}</b></div>
@@ -462,6 +463,53 @@ function orderDetail(id) {
     ${o.rating ? `<div class="kv"><span>Rating</span><b style="color:#f59e0b">${"★".repeat(o.rating)}${o.review ? "<br><small class='muted'>" + esc(o.review) + "</small>" : ""}</b></div>` : ""}
     ${o.status === "cancelled" ? `<div class="kv"><span>Dibatalkan oleh</span><b>${esc(o.cancelled_by || "-")}<br><small class="muted">${esc(o.cancel_reason || "")}</small></b></div>` : ""}
     ${ACTIVE.includes(o.status) ? `<button class="btn red full" onclick="adminCancel('${o.id}')">Batalkan order ini</button>` : ""}`);
+}
+/* --- perubahan titik antar oleh driver: tarif, bukti, rekam jejak --- */
+function fareSection(o) {
+  const lg = (S.fareLog || []).filter((x) => x.order_id === o.id).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const rs = S.destChg.filter((c) => c.order_id === o.id).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const chg = o.orig_fare != null && Number(o.orig_fare) !== Number(o.fare);
+  const trailBtn = o.driver_id ? `<button class="btn sm" onclick="orderTrail('${o.id}')">🧭 Rekam jejak driver</button>` : "";
+  if (!o.dest_changed && !lg.length && !chg) return trailBtn ? `<div class="row" style="margin:10px 0">${trailBtn}</div>` : "";
+  const delta = Number(o.fare) - Number(o.orig_fare ?? o.fare);
+  return `<div style="border:1.5px solid #fcd34d;background:#fffbeb;border-radius:12px;padding:10px;margin:10px 0">
+    <b>📍 Titik antar diubah driver${o.dest_change_count ? " (" + o.dest_change_count + "x)" : ""}</b>${o.flagged ? ' <span class="pill r">🚩 ditandai</span>' : ""}
+    ${chg ? `<div class="kv"><span>Tarif awal → sekarang</span><b>${rp(o.orig_fare)} → ${rp(o.fare)} <span class="pill ${delta > 0 ? "r" : "g"}">${delta > 0 ? "+" : "−"}${rp(Math.abs(delta))}</span></b></div>` : ""}
+    ${lg.map((x, i) => `<div class="muted" style="margin-top:6px">• ${fmtTime(x.created_at)}<br>${esc(x.old_dest_address || "-")} → <b>${esc(x.new_dest_address || "-")}</b><br>geser ${x.moved_m ?? "?"} m · dari tujuan awal ${x.from_orig_m ?? "?"} m · jarak ${x.dist_before ?? "?"} → ${x.dist_after ?? "?"} km · tarif ${rp(x.fare_before)} → ${rp(x.fare_after)}${rs[i] && rs[i].reason ? "<br>Alasan driver: “" + esc(rs[i].reason) + "”" : ""}</div>`).join("")}
+    <div class="row" style="margin-top:8px">${trailBtn}${o.driver_id ? `<button class="btn sm amber" onclick="closeModal();openSanction('${o.driver_id}','${o.id}')">⚖ Beri sanksi</button>` : ""}</div></div>`;
+}
+const PH_COL = { accepted: "#2563eb", arrived: "#f59e0b", ongoing: "#16a34a" };
+async function orderTrail(id) {
+  const o = S.orders.find((x) => x.id === id); if (!o) return;
+  const lg = (S.fareLog || []).filter((x) => x.order_id === id).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  openModal(`<h2>Rekam jejak order #${esc(o.id.slice(0, 8))}</h2>
+    <div class="legend" style="flex-wrap:wrap;margin:0 0 6px"><span><i style="background:#2563eb"></i>Menuju jemput</span><span><i style="background:#f59e0b"></i>Menunggu</span><span><i style="background:#16a34a"></i>Perjalanan</span><span><i style="background:#6b7280"></i>Tujuan awal pelanggan</span><span><i style="background:#dc2626"></i>Titik antar akhir</span></div>
+    <div id="trMap" style="height:400px;border-radius:12px;z-index:1"></div><div id="trInfo" class="muted" style="margin-top:8px">Memuat jejak…</div>
+    <div style="margin-top:8px">${fareSection(o).replace(/<button class="btn sm" onclick="orderTrail[^>]*>[^<]*<\/button>/, "")}</div>`, true);
+  if (S.trMap) { S.trMap.remove(); S.trMap = null; }
+  S.trMap = L.map("trMap");
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(S.trMap);
+  const pts = [], mk = (lat, lng, bg, txt, tip) => { L.marker([lat, lng], { icon: L.divIcon({ className: "", iconSize: [26, 26], iconAnchor: [13, 13], html: `<div style="width:26px;height:26px;border-radius:50%;background:${bg};color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.4)">${txt}</div>` }) }).bindPopup(tip).addTo(S.trMap); pts.push([lat, lng]); };
+  const oLat = o.orig_dest_lat ?? (lg[0] ? lg[0].old_dest_lat : o.dest_lat), oLng = o.orig_dest_lng ?? (lg[0] ? lg[0].old_dest_lng : o.dest_lng);
+  mk(o.pickup_lat, o.pickup_lng, "#16a34a", "J", "<b>Titik jemput</b><br>" + esc(o.pickup_address || ""));
+  mk(oLat, oLng, "#6b7280", "A", "<b>Tujuan awal pelanggan</b>");
+  if (Math.abs(oLat - o.dest_lat) > 1e-6 || Math.abs(oLng - o.dest_lng) > 1e-6) mk(o.dest_lat, o.dest_lng, "#dc2626", "T", "<b>Titik antar akhir</b><br>" + esc(o.dest_address || ""));
+  else L.circleMarker([o.dest_lat, o.dest_lng], { radius: 14, color: "#dc2626", weight: 3, fill: false }).addTo(S.trMap);
+  lg.forEach((x, i) => { if (x.new_dest_lat != null) mk(x.new_dest_lat, x.new_dest_lng, "#f59e0b", "!" + (i + 1), `<b>Titik antar diubah #${i + 1}</b><br>${fmtTime(x.created_at)}<br>tarif ${rp(x.fare_before)} → ${rp(x.fare_after)}`); });
+  const { data, error } = await sb.from("order_track").select("phase,lat,lng,created_at").eq("order_id", id).order("created_at", { ascending: true }).limit(5000);
+  const tr = data || [];
+  if (error) $("trInfo").textContent = "Gagal memuat jejak: " + error.message + " (sudah menjalankan patch-nav-tarif.sql?)";
+  else if (!tr.length) $("trInfo").textContent = "Belum ada titik jejak untuk order ini (order dibuat sebelum patch, atau aplikasi driver belum versi terbaru).";
+  else {
+    const draw = (sg, ph) => L.polyline(sg.map((q) => [q.lat, q.lng]), { color: PH_COL[ph] || "#2563eb", weight: 5, opacity: .9 }).addTo(S.trMap);
+    let seg = [tr[0]], ph = tr[0].phase;
+    for (let i = 1; i < tr.length; i++) {
+      if (tr[i].phase !== ph) { draw(seg, ph); ph = tr[i].phase; seg = [tr[i - 1], tr[i]]; } else seg.push(tr[i]);
+    }
+    draw(seg, ph); tr.forEach((q) => pts.push([q.lat, q.lng]));
+    $("trInfo").textContent = tr.length + " titik GPS · " + fmtTime(tr[0].created_at) + " → " + fmtTime(tr[tr.length - 1].created_at) + ". Garis menunjukkan jalur nyata yang dilalui driver.";
+  }
+  setTimeout(() => { S.trMap.invalidateSize(); S.trMap.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 17 }); }, 120);
 }
 async function adminCancel(id) {
   const r = prompt("Alasan pembatalan (opsional):"); if (r === null) return;
@@ -739,7 +787,8 @@ function rReview() {
     ${flg.length ? flg.map((o) => {
       const ch = S.destChg.filter((c) => c.order_id === o.id);
       return orderCard(o, `<div>${esc(o.flag_reason || "")}</div>
-        <div class="muted" style="margin-top:4px">Jarak saat selesai: ${o.complete_dist_m != null ? o.complete_dist_m + " m" : "-"} · Tarif ${rp(o.fare)}</div>
+        <div class="muted" style="margin-top:4px">Jarak saat selesai: ${o.complete_dist_m != null ? o.complete_dist_m + " m" : "-"} · Tarif ${o.orig_fare != null && Number(o.orig_fare) !== Number(o.fare) ? rp(o.orig_fare) + " → <b>" + rp(o.fare) + "</b>" : rp(o.fare)}</div>
+        <div class="row" style="margin-top:6px"><button class="btn sm" onclick="orderTrail('${o.id}')">🧭 Rekam jejak driver</button></div>
         <div class="row" style="margin-top:6px"><a class="btn sm gray" style="text-decoration:none" target="_blank" rel="noopener" href="${mapLink(o.orig_dest_lat ?? o.dest_lat, o.orig_dest_lng ?? o.dest_lng)}">🗺 Tujuan awal</a><a class="btn sm gray" style="text-decoration:none" target="_blank" rel="noopener" href="${mapLink(o.dest_lat, o.dest_lng)}">🗺 Titik antar akhir</a></div>
         ${ch.map((c) => `<div class="muted">• ${fmtTime(c.created_at)}: geser ${c.moved_m} m (dari awal ${c.from_orig_m} m) — ${esc(c.reason)}</div>`).join("")}`);
     }).join("") : '<div class="empty">Tidak ada.</div>'}
@@ -796,6 +845,8 @@ async function saveSettings() {
   const c = rows.find((r) => r.key === "commission_pct").value;
   if (c < 0 || c > 50) return toast("Komisi harus antara 0 – 50%");
   if (rows.find((r) => r.key === "dispatch_radius_km").value <= 0 || rows.find((r) => r.key === "offer_seconds").value < 10) return toast("Radius harus > 0 dan waktu tawaran min. 10 detik");
+  const rad = rows.find((r) => r.key === "dispatch_radius_km").value;
+  rows.push({ key: "dispatch_max_km", value: rad });          // batas cadangan disamakan → tidak ada pelebaran jarak otomatis
   const { error } = await sb.from("settings").upsert(rows);
   if (error) return toast("Gagal menyimpan: " + error.message, 6000);
   $("setBox").dataset.dirty = "0"; toast("Pengaturan disimpan ✔"); loadAll();
